@@ -161,13 +161,13 @@ function saveLog(log) { jset('ct_log', { date: TODAY(), items: log }); }
 const DEFAULT_GOALS = { calorieën: 2800, eiwitten: 150, koolhydraten: 200, vetten: 65 };
 
 // ── Rule-based split ──────────────────────────────────────────────────────────
-// Splits op komma, OF waar een nieuw getal begint na tekst.
-// "150g yoghurt, 100g kwark"  → twee producten  ✓
-// "150g yoghurt 100g kwark"   → twee producten  ✓
-// "mac en cheese"             → één product     ✓
+// Splits op komma, "en" vóór een getal, of een nieuw getal.
+// "150g yoghurt en 150g kwark" → twee producten  ✓
+// "150g yoghurt, 100g kwark"   → twee producten  ✓
+// "mac en cheese"              → één product     ✓
 const ruleBasedSplit = (q) => {
   return q
-    .split(/,|(?<=\S)\s+(?=\d)/)
+    .split(/,|\s+en\s+(?=\d)|\s+(?=\d)/i)
     .map(part => part.trim())
     .filter(Boolean)
     .map(part => {
@@ -433,16 +433,16 @@ function App() {
     return null;
   };
 
-  // ── AI: schat voedingswaarden (alleen als OFF niks vindt) ─────────────────
+  // ── AI: schat voedingswaarden voor producten niet gevonden in OFF ──────────
   const aiNutrition = async (q) => {
     setLoadMsg('AI schat voedingswaarden...');
     const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
     const parsed = parseGeminiJson(data);
     addItems(parsed.items || []);
     setBericht(parsed.bericht || '');
-    setSource('ai');
   };
 
+  // ── Hoofd zoeklogica ──────────────────────────────────────────────────────
   // ── Hoofd zoeklogica ──────────────────────────────────────────────────────
   const handleSearch = async () => {
     const q = query.trim();
@@ -460,28 +460,47 @@ function App() {
     setSource('');
 
     try {
-      // ── Stap 1: deterministisch splitsen op "en" / ","
+      // ── Stap 1: deterministisch splitsen op komma of nieuw getal
       setLoadMsg('Producten herkennen...');
       const producten = ruleBasedSplit(q);
 
-      // ── Stap 2: elk product apart in OFF zoeken
+      // ── Stap 2: elk product apart proberen in OFF
       setLoadMsg('Zoeken in database...');
-      const gevonden = [];
+      const gevonden     = []; // OFF kaartjes om te tonen
+      const nietGevonden = []; // naar AI sturen
+
       for (const { qty, clean } of producten) {
-        const prods = await offSearch(clean, signal);
-        if (prods.length) {
-          gevonden.push(...prods.slice(0, 3).map(product => ({ product, qty })));
+        try {
+          const prods = await offSearch(clean, signal);
+          if (prods.length) {
+            gevonden.push(...prods.slice(0, 3).map(product => ({ product, qty })));
+          } else {
+            nietGevonden.push({ qty, clean });
+          }
+        } catch (e) {
+          if (e.name === 'AbortError') throw e; // abort altijd doorgooien
+          nietGevonden.push({ qty, clean });    // fetch fout → AI fallback
         }
       }
 
-      if (gevonden.length > 0) {
-        setResults(gevonden);
-        setSource('off');
-      } else {
-        // ── Stap 3: OFF vond niks → AI fallback
-        await aiNutrition(q);
-        setQuery('');
+      // ── Stap 3: source bepalen en resultaten tonen
+      const heeftOFF = gevonden.length > 0;
+      const heeftAI  = nietGevonden.length > 0;
+
+      if (heeftOFF) setResults(gevonden);
+
+      if (heeftAI) {
+        const aiQuery = nietGevonden.map(({ qty, clean }) => `${qty}g ${clean}`).join(', ');
+        await aiNutrition(aiQuery);
       }
+
+      if      (heeftOFF && heeftAI) setSource('mix');
+      else if (heeftOFF)            setSource('off');
+      else                          setSource('ai');
+
+      // Query alleen clearen als er geen OFF kaartjes zijn
+      if (!heeftOFF) setQuery('');
+
     } catch (e) {
       if (e.name === 'AbortError') return;
       setError('Fout: ' + (e.message || 'Probeer opnieuw.'));
@@ -529,6 +548,7 @@ function App() {
     if (s === 'off')     return html`<span class="source-badge" style="background:#7fa4b81a;color:var(--c)">● Open Food Facts</span>`;
     if (s === 'barcode') return html`<span class="source-badge" style="background:#85b0981a;color:var(--p)">● Barcode scan</span>`;
     if (s === 'ai')      return html`<span class="source-badge" style="background:#b89e721a;color:var(--f)">✦ AI schatting</span>`;
+    if (s === 'mix')     return html`<span class="source-badge" style="background:#ffffff0a;color:var(--muted)">● OFF  +  ✦ AI</span>`;
     return null;
   };
 
