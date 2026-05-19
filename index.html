@@ -75,7 +75,6 @@
     }
     .btn:hover:not(:disabled) { opacity: .8; }
     .btn:disabled { opacity: .25; cursor: default; }
-    .btn.loading { animation: pulse 1s infinite; background: var(--s2); color: var(--muted); }
     .btn.success { background: var(--p); color: var(--bg); }
     .tab {
       flex: 1;
@@ -109,82 +108,49 @@
       font-family: 'JetBrains Mono', monospace;
     }
     a { color: var(--c); }
-
-    /* Camera overlay */
     .scanner-overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 100;
-      background: #000;
-      display: flex;
-      flex-direction: column;
-    }
-    .scanner-video {
-      width: 100%;
-      flex: 1;
-      object-fit: cover;
+      position: fixed; inset: 0; z-index: 100;
+      background: #000; display: flex; flex-direction: column;
     }
     .scanner-frame {
-      position: absolute;
-      top: 50%;
-      left: 50%;
+      position: absolute; top: 50%; left: 50%;
       transform: translate(-50%, -60%);
-      width: 240px;
-      height: 160px;
-      pointer-events: none;
+      width: 240px; height: 160px; pointer-events: none;
     }
-    .scanner-frame::before,
-    .scanner-frame::after {
-      content: '';
-      position: absolute;
-      width: 30px;
-      height: 30px;
-      border-color: var(--p);
-      border-style: solid;
+    .scanner-frame::before, .scanner-frame::after {
+      content: ''; position: absolute;
+      width: 30px; height: 30px;
+      border-color: var(--p); border-style: solid;
     }
-    .scanner-frame::before { top: 0; left: 0; border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
-    .scanner-frame::after  { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
-    .scanner-frame-tr,
-    .scanner-frame-bl {
-      position: absolute;
-      width: 30px;
-      height: 30px;
-      border-color: var(--p);
-      border-style: solid;
+    .scanner-frame::before { top:0;left:0;border-width:3px 0 0 3px;border-radius:4px 0 0 0; }
+    .scanner-frame::after  { bottom:0;right:0;border-width:0 3px 3px 0;border-radius:0 0 4px 0; }
+    .scanner-frame-tr, .scanner-frame-bl {
+      position: absolute; width: 30px; height: 30px;
+      border-color: var(--p); border-style: solid;
     }
-    .scanner-frame-tr { top: 0; right: 0; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
-    .scanner-frame-bl { bottom: 0; left: 0; border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+    .scanner-frame-tr { top:0;right:0;border-width:3px 3px 0 0;border-radius:0 4px 0 0; }
+    .scanner-frame-bl { bottom:0;left:0;border-width:0 0 3px 3px;border-radius:0 0 0 4px; }
     .scanner-line {
-      position: absolute;
-      left: 4px;
-      right: 4px;
-      height: 2px;
+      position: absolute; left: 4px; right: 4px; height: 2px;
       background: linear-gradient(90deg, transparent, var(--p), transparent);
       animation: scanline 2s ease-in-out infinite;
     }
-
-    /* Source badge */
     .source-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 10px;
-      padding: 2px 7px;
-      border-radius: 20px;
-      font-family: 'JetBrains Mono', monospace;
-      margin-bottom: 10px;
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; padding: 2px 7px; border-radius: 20px;
+      font-family: 'JetBrains Mono', monospace; margin-bottom: 10px;
     }
   </style>
 </head>
 <body>
 <div id="app"></div>
 <script type="module">
-import { h, render, Fragment } from 'https://esm.sh/preact@10.24.3';
-import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@10.24.3/hooks';
+import { h, render } from 'https://esm.sh/preact@10.24.3';
+import { useState, useEffect, useRef } from 'https://esm.sh/preact@10.24.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 const html = htm.bind(h);
 
-// ── Storage helpers ──────────────────────────────────────────────────────────
+// ── Storage ──────────────────────────────────────────────────────────────────
 const TODAY = () => new Date().toISOString().slice(0, 10);
 const jget = (k, fb) => { try { const v = localStorage.getItem(k); return v !== null ? JSON.parse(v) : fb; } catch { return fb; } };
 const jset = (k, v) => localStorage.setItem(k, JSON.stringify(v));
@@ -194,20 +160,62 @@ function loadLog() { const d = jget('ct_log', {}); return d.date === TODAY() ? d
 function saveLog(log) { jset('ct_log', { date: TODAY(), items: log }); }
 const DEFAULT_GOALS = { calorieën: 2800, eiwitten: 150, koolhydraten: 200, vetten: 65 };
 
-const SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSON terug, geen tekst eromheen:
+// ── Prompts ──────────────────────────────────────────────────────────────────
+const SPLIT_SYSTEM = `Splits de gebruikersinvoer in losse producten. Geef ALLEEN valide JSON:
+{"producten":[{"qty":150,"clean":"zaanse hoeve volle yoghurt"},{"qty":100,"clean":"campina magere kwark"}]}
+- qty = hoeveelheid als getal in gram of ml. Gebruik 100 als niet opgegeven.
+- clean = productnaam zonder hoeveelheid of eenheid.
+ALLEEN JSON, niets anders.`;
+
+const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSON:
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 
-// ── Hoeveelheid parsen ───────────────────────────────────────────────────────
-// Geeft { qty: number, unit: string, clean: string } of null als geen hoeveelheid gevonden
-const parseQty = (q) => {
-  const match = q.match(/^(\d+(?:[.,]\d+)?)\s*(g|gr|gram|ml|l|liter|stuks?|el|tl|eetl|theel)\b\s*/i);
-  if (!match) return { qty: 100, unit: 'g', clean: q.trim() };
-  const qty = parseFloat(match[1].replace(',', '.'));
-  const unit = match[2].toLowerCase();
-  const clean = q.slice(match[0].length).trim();
-  return { qty, unit, clean };
+// ── Gemini helper met retry + model fallback ──────────────────────────────────
+const MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+
+const callGemini = async (systemText, userText, maxTokens = 1000) => {
+  const k = getKey();
+  if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
+
+  for (let i = 0; i < MODELS.length; i++) {
+    const model = MODELS[i];
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${k}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemText }] },
+          contents: [{ role: 'user', parts: [{ text: userText }] }],
+          generationConfig: { maxOutputTokens: maxTokens }
+        }) }
+    );
+    const data = await res.json();
+    // Rate limit → wacht even en probeer volgend model
+    if (data.error?.code === 429 || data.error?.status === 'RESOURCE_EXHAUSTED') {
+      if (i < MODELS.length - 1) {
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      throw new Error('Te veel verzoeken. Even wachten en opnieuw proberen.');
+    }
+    if (data.error) throw new Error(data.error.message);
+    return data;
+  }
 };
+
+const parseGeminiJson = (data) => {
+  const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+  const clean = text.replace(/```json|```/g, '').trim();
+  const start = clean.indexOf('{'), end = clean.lastIndexOf('}');
+  if (start === -1 || end === -1) throw new Error('Geen geldige JSON ontvangen.');
+  return JSON.parse(clean.slice(start, end + 1));
+};
+
+// ── OFF fetch met timeout per zoekopdracht ────────────────────────────────────
+const timedFetch = (url, signal, ms = 8000) => Promise.race([
+  fetch(url, { signal }),
+  new Promise((_, rej) => setTimeout(() => rej(new Error('Verzoek duurde te lang, probeer opnieuw.')), ms))
+]);
 
 // ── Ring ─────────────────────────────────────────────────────────────────────
 function Ring({ value, goal, label, color }) {
@@ -251,7 +259,7 @@ function LogCard({ item, onRemove }) {
     </div>`;
 }
 
-// ── SearchResult card ─────────────────────────────────────────────────────────
+// ── SearchResult ──────────────────────────────────────────────────────────────
 function SearchResult({ product, onAdd, initialQty }) {
   const [qty, setQty] = useState(initialQty || 100);
   const [done, setDone] = useState(false);
@@ -286,24 +294,17 @@ function SearchResult({ product, onAdd, initialQty }) {
     </div>`;
 }
 
-// ── BarcodeScanner overlay ────────────────────────────────────────────────────
+// ── BarcodeScanner ────────────────────────────────────────────────────────────
 function BarcodeScanner({ onDetected, onClose }) {
-  const videoRef  = useRef(null);
+  const videoRef = useRef(null);
   const readerRef = useRef(null);
-  const [err,   setErr]   = useState('');
+  const [err, setErr] = useState('');
   const [found, setFound] = useState(null);
 
   const stopStream = () => {
-    try {
-      if (videoRef.current?.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach(t => t.stop());
-        videoRef.current.srcObject = null;
-      }
-    } catch {}
+    try { if (videoRef.current?.srcObject) { videoRef.current.srcObject.getTracks().forEach(t => t.stop()); videoRef.current.srcObject = null; } } catch {}
     try { readerRef.current?.reset(); } catch {}
   };
-
-  const handleClose = () => { stopStream(); onClose(); };
 
   useEffect(() => {
     let active = true;
@@ -312,19 +313,15 @@ function BarcodeScanner({ onDetected, onClose }) {
         const { BrowserMultiFormatReader } = await import('https://esm.sh/@zxing/browser@0.1.4');
         const reader = new BrowserMultiFormatReader();
         readerRef.current = reader;
-        await reader.decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
-          if (!active) return;
-          if (result) {
-            active = false;
-            const code = result.getText();
-            stopStream();
-            setFound(code);
-            setTimeout(() => onDetected(code), 900);
-          }
+        await reader.decodeFromVideoDevice(undefined, videoRef.current, (result) => {
+          if (!active || !result) return;
+          active = false;
+          const code = result.getText();
+          stopStream();
+          setFound(code);
+          setTimeout(() => onDetected(code), 900);
         });
-      } catch (e) {
-        if (active) setErr('Kan camera niet openen. Controleer de toestemmingen.');
-      }
+      } catch { if (active) setErr('Kan camera niet openen. Controleer de toestemmingen.'); }
     })();
     return () => { active = false; stopStream(); };
   }, []);
@@ -333,26 +330,18 @@ function BarcodeScanner({ onDetected, onClose }) {
     <div class="scanner-overlay">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:16px;z-index:2">
         <div style="color:white;font-size:15px;font-weight:600">Scan barcode</div>
-        <button onClick=${handleClose}
+        <button onClick=${()=>{stopStream();onClose();}}
           style="background:rgba(255,255,255,.1);border:none;color:white;width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
       </div>
       <div style="position:relative;flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden">
         <video ref=${videoRef} style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:${found?0:1};transition:opacity .2s"/>
-
-        ${!err && !found && html`
-          <div class="scanner-frame">
-            <div class="scanner-frame-tr"/>
-            <div class="scanner-frame-bl"/>
-            <div class="scanner-line"/>
-          </div>`}
-
+        ${!err && !found && html`<div class="scanner-frame"><div class="scanner-frame-tr"/><div class="scanner-frame-bl"/><div class="scanner-line"/></div>`}
         ${found && html`
           <div class="fade-up" style="position:relative;z-index:3;text-align:center">
             <div style="font-size:40px;margin-bottom:12px">✓</div>
             <div style="color:var(--p);font-size:15px;font-weight:700">Barcode gevonden</div>
             <div class="mono" style="color:var(--muted);font-size:12px;margin-top:6px">${found}</div>
           </div>`}
-
         ${err && html`<div style="position:relative;color:#ff6b6b;font-size:13px;text-align:center;padding:20px;background:rgba(0,0,0,.7);border-radius:10px">${err}</div>`}
       </div>
       <div style="padding:20px;text-align:center;color:#666;font-size:12px">
@@ -367,123 +356,125 @@ function App() {
   const [goals,    setGoals]    = useState(() => jget('ct_goals', DEFAULT_GOALS));
   const [key,      setKeyState] = useState(getKey);
   const [tab,      setTab]      = useState('add');
-
   const [query,    setQuery]    = useState('');
   const [loading,  setLoading]  = useState(false);
   const [loadMsg,  setLoadMsg]  = useState('');
+  // results = array van { product, qty } zodat elk kaartje eigen hoeveelheid heeft
   const [results,  setResults]  = useState([]);
-  const [parsedQty, setParsedQty] = useState(100); // hoeveelheid uit query onthouden
   const [bericht,  setBericht]  = useState('');
   const [error,    setError]    = useState('');
   const [source,   setSource]   = useState('');
-
   const [scanning, setScanning] = useState(false);
+  const [gDraft,   setGDraft]   = useState(goals);
+  const [kSaved,   setKSaved]   = useState(false);
+  const [gSaved,   setGSaved]   = useState(false);
 
-  const [gDraft, setGDraft]   = useState(goals);
-  const [kSaved, setKSaved]   = useState(false);
-  const [gSaved, setGSaved]   = useState(false);
-
-  const inputRef = useRef();
+  const inputRef  = useRef();
+  const abortRef  = useRef(null); // AbortController voor lopende OFF-fetches
 
   useEffect(() => saveLog(log), [log]);
 
-  const totals = log.reduce((a,i) => ({
+  const totals = log.reduce((a, i) => ({
     calorieën:    a.calorieën    + i.calorieën,
     eiwitten:     a.eiwitten     + i.eiwitten,
     koolhydraten: a.koolhydraten + i.koolhydraten,
     vetten:       a.vetten       + i.vetten,
-  }), { calorieën:0, eiwitten:0, koolhydraten:0, vetten:0 });
+  }), { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
 
   const addItems = items => setLog(p => [...p, ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
 
   const addOFF = (product, qty) => {
     const n = product.nutriments, f = qty / 100;
-    addItems([{ naam: product.product_name, hoeveelheid:`${qty}g`,
-      calorieën:(n['energy-kcal_100g']||0)*f, eiwitten:(n['proteins_100g']||0)*f,
-      koolhydraten:(n['carbohydrates_100g']||0)*f, vetten:(n['fat_100g']||0)*f }]);
+    addItems([{ naam: product.product_name, hoeveelheid: `${qty}g`,
+      calorieën: (n['energy-kcal_100g'] || 0) * f, eiwitten: (n['proteins_100g'] || 0) * f,
+      koolhydraten: (n['carbohydrates_100g'] || 0) * f, vetten: (n['fat_100g'] || 0) * f }]);
   };
 
-  // ── OFF textsearch — zoekt altijd met gecleande query (zonder hoeveelheid)
-  const doOffSearch = async (cleanQ) => {
-    setLoadMsg('Zoeken in database...');
-    const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(cleanQ)}&search_simple=1&action=process&json=1&page_size=10&lc=nl&cc=nl&fields=product_name,brands,nutriments`);
-    const data = await res.json();
-    const prods = (data.products||[]).filter(p => p.product_name && p.nutriments?.['energy-kcal_100g']);
-    if (prods.length) {
-      setResults(prods.slice(0, 6));
-      setSource('off');
-      return true;
-    }
-    return false;
-  };
-
-  // ── OFF barcode lookup
-  const doOffBarcode = async (barcode) => {
-    setLoadMsg('Product opzoeken...');
-    const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
-    const data = await res.json();
-    if (data.status === 1 && data.product?.nutriments?.['energy-kcal_100g']) {
-      setResults([data.product]);
-      setSource('barcode');
-      return true;
-    }
-    return false;
-  };
-
-  // ── AI search — krijgt altijd de originele query inclusief hoeveelheid
-  const doAiSearch = async (originalQ) => {
-    const k = getKey();
-    if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
-    setLoadMsg('AI schat voedingswaarden...');
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${k}`,
-      { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          system_instruction: { parts:[{ text: SYSTEM }] },
-          contents: [{ role:'user', parts:[{ text: originalQ }] }],
-          generationConfig: { maxOutputTokens: 2048 }
-        }) }
+  // ── OFF: zoek één product, geeft array van producten terug ────────────────
+  const offSearch = async (cleanQ, signal) => {
+    const res = await timedFetch(
+      `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(cleanQ)}&search_simple=1&action=process&json=1&page_size=8&lc=nl&cc=nl&fields=product_name,brands,nutriments`,
+      signal
     );
     const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    const text = data.candidates?.[0]?.content?.parts?.map(p => p.text||'').join('') || '';
-    const clean = text.replace(/```json|```/g,'').trim();
-    const jsonStart = clean.indexOf('{');
-    const jsonEnd = clean.lastIndexOf('}');
-    if (jsonStart === -1 || jsonEnd === -1) throw new Error('Geen geldige JSON ontvangen.');
-    const parsed = JSON.parse(clean.slice(jsonStart, jsonEnd + 1));
+    return (data.products || []).filter(p => p.product_name && p.nutriments?.['energy-kcal_100g']);
+  };
+
+  // ── OFF: barcode lookup ───────────────────────────────────────────────────
+  const offBarcode = async (barcode, signal) => {
+    const res = await timedFetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`, signal);
+    const data = await res.json();
+    if (data.status === 1 && data.product?.nutriments?.['energy-kcal_100g']) return data.product;
+    return null;
+  };
+
+  // ── AI: split query in losse producten ───────────────────────────────────
+  // Geeft [{ qty, clean }] terug — 1e AI call
+  const aiSplit = async (q) => {
+    const data = await callGemini(SPLIT_SYSTEM, q, 300);
+    const parsed = parseGeminiJson(data);
+    return parsed.producten || [];
+  };
+
+  // ── AI: schat voedingswaarden — 2e AI call (fallback) ────────────────────
+  const aiNutrition = async (q) => {
+    setLoadMsg('AI schat voedingswaarden...');
+    const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
+    const parsed = parseGeminiJson(data);
     addItems(parsed.items || []);
     setBericht(parsed.bericht || '');
     setSource('ai');
   };
 
-  // ── Unified search handler
+  // ── Hoofd zoeklogica ──────────────────────────────────────────────────────
   const handleSearch = async () => {
     const q = query.trim();
     if (!q || loading) return;
 
-    // Hoeveelheid parsen — onthouden voor pre-fill, clean query voor OFF
-    const { qty, clean } = parseQty(q);
+    // Cancel eventuele hangende OFF-fetches van vorige zoekopdracht
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
 
     setLoading(true);
     setError('');
     setResults([]);
     setBericht('');
     setSource('');
-    setParsedQty(qty);
 
     try {
-      // Altijd OFF eerst proberen met gecleande query
-      setLoadMsg('Zoeken in database...');
-      const found = await doOffSearch(clean);
+      // ── Stap 1: AI split-call — welke losse producten zitten erin?
+      setLoadMsg('Producten herkennen...');
+      let producten = [];
+      try {
+        producten = await aiSplit(q);
+      } catch {
+        // Split mislukt → behandel als één product zonder hoeveelheid
+        producten = [{ qty: 100, clean: q }];
+      }
 
-      if (!found) {
-        // Niks in OFF — AI fallback met originele query (inclusief hoeveelheid)
-        await doAiSearch(q);
+      // ── Stap 2: elk product apart in OFF zoeken
+      setLoadMsg('Zoeken in database...');
+      const gevonden = [];
+      for (const { qty, clean } of producten) {
+        const prods = await offSearch(clean, signal);
+        if (prods.length) {
+          // Maximaal 3 resultaten per product, elk met eigen qty voor pre-fill
+          gevonden.push(...prods.slice(0, 3).map(product => ({ product, qty })));
+        }
+      }
+
+      if (gevonden.length > 0) {
+        setResults(gevonden);
+        setSource('off');
+      } else {
+        // ── Stap 3: OFF vond niks → AI fallback met originele query
+        await aiNutrition(q);
         setQuery('');
       }
-      // OFF gevonden: query laten staan zodat gebruiker hem kan aanpassen
-    } catch(e) {
+    } catch (e) {
+      if (e.name === 'AbortError') return; // nieuwe zoekopdracht gestart, stil stoppen
       setError('Fout: ' + (e.message || 'Probeer opnieuw.'));
     } finally {
       setLoading(false);
@@ -492,21 +483,30 @@ function App() {
     }
   };
 
-  // ── Barcode detected
+  // ── Barcode ───────────────────────────────────────────────────────────────
   const handleBarcode = async (code) => {
     setScanning(false);
     setQuery(code);
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+
     setLoading(true);
     setError('');
     setResults([]);
     setBericht('');
     setSource('');
-    setParsedQty(100);
     try {
-      const found = await doOffBarcode(code);
-      if (!found) setError(`Barcode ${code} niet gevonden in de database.`);
-    } catch {
-      setError('Fout bij opzoeken van barcode.');
+      const product = await offBarcode(code, signal);
+      if (product) {
+        setResults([{ product, qty: 100 }]);
+        setSource('barcode');
+      } else {
+        setError(`Barcode ${code} niet gevonden in de database.`);
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') setError('Fout bij opzoeken van barcode.');
     } finally {
       setLoading(false);
       setLoadMsg('');
@@ -524,10 +524,9 @@ function App() {
   };
 
   return html`<div>
-
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
 
-    <!-- ── Header ── -->
+    <!-- Header -->
     <div style="background:var(--s1);border-bottom:1px solid var(--border);padding:16px;position:sticky;top:0;z-index:20">
       <div style="max-width:480px;margin:0 auto">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
@@ -544,7 +543,6 @@ function App() {
             Reset dag
           </button>
         </div>
-
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:6px">
           <span>Calorieën</span>
           <span class="mono" style="color:${calOver?'var(--danger)':'var(--text)'};font-weight:600">
@@ -554,7 +552,6 @@ function App() {
         <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
           <div style="width:${calPct*100}%;height:100%;background:${calOver?'var(--danger)':'var(--text)'};border-radius:6px;transition:width .5s ease"/>
         </div>
-
         <div style="display:flex;justify-content:space-around;margin-top:16px">
           <${Ring} value=${totals.eiwitten}     goal=${goals.eiwitten}     label="Eiwitten"     color="var(--p)"/>
           <${Ring} value=${totals.koolhydraten} goal=${goals.koolhydraten} label="Koolhydraten" color="var(--c)"/>
@@ -563,7 +560,7 @@ function App() {
       </div>
     </div>
 
-    <!-- ── Tabs ── -->
+    <!-- Tabs -->
     <div style="background:var(--bg);border-bottom:1px solid var(--border)">
       <div style="max-width:480px;margin:0 auto;display:flex">
         <button class=${'tab'+(tab==='add'?' on':'')} onClick=${()=>setTab('add')}>Toevoegen</button>
@@ -575,10 +572,9 @@ function App() {
       </div>
     </div>
 
-    <!-- ── Content ── -->
+    <!-- Content -->
     <div style="max-width:480px;margin:0 auto;padding:16px 14px 80px">
 
-      <!-- Add tab -->
       ${tab==='add' && html`<div>
         <div class="card">
           <div style="display:flex;gap:8px">
@@ -596,7 +592,7 @@ function App() {
             <input ref=${inputRef} value=${query}
               onInput=${e=>{ setQuery(e.target.value); if(results.length||bericht||error){ setResults([]); setBericht(''); setError(''); setSource(''); } }}
               onKeyDown=${e=>e.key==='Enter'&&handleSearch()}
-              placeholder='Zoek product, beschrijf maaltijd of scan barcode…'
+              placeholder="Zoek product, beschrijf maaltijd of scan barcode…"
               class="field" style="flex:1"/>
             <button onClick=${handleSearch} disabled=${loading||!query.trim()}
               style="flex-shrink:0;background:var(--text);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${loading||!query.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
@@ -621,7 +617,8 @@ function App() {
         ${(results.length > 0 || bericht) && html`
           <div style="margin-bottom:4px">${sourceBadge(source)}</div>`}
 
-        ${results.map(p => html`<${SearchResult} product=${p} onAdd=${addOFF} initialQty=${parsedQty}/>`)}
+        ${results.map(({ product, qty }) => html`
+          <${SearchResult} product=${product} onAdd=${addOFF} initialQty=${qty}/>`)}
 
         ${bericht && html`
           <div class="card fade-up" style="border-color:var(--dim);font-size:12px;color:#888;line-height:1.6;margin-bottom:0">
@@ -645,7 +642,6 @@ function App() {
           </div>`}
       </div>`}
 
-      <!-- Settings tab -->
       ${tab==='settings' && html`<div>
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:10px">Gemini API Key</div>
