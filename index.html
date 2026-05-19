@@ -39,6 +39,7 @@
 
     @keyframes fadeUp { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
     @keyframes pulse  { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+    @keyframes scanline { 0%,100% { top: 20%; } 50% { top: 75%; } }
     .fade-up { animation: fadeUp .2s ease; }
 
     .card {
@@ -48,7 +49,6 @@
       padding: 14px;
       margin-bottom: 12px;
     }
-
     .field {
       width: 100%;
       background: var(--bg);
@@ -60,7 +60,6 @@
       transition: border-color .2s;
     }
     .field:focus { border-color: var(--text); }
-
     .btn {
       width: 100%;
       background: var(--text);
@@ -78,7 +77,6 @@
     .btn:disabled { opacity: .25; cursor: default; }
     .btn.loading { animation: pulse 1s infinite; background: var(--s2); color: var(--muted); }
     .btn.success { background: var(--p); color: var(--bg); }
-
     .tab {
       flex: 1;
       background: none;
@@ -93,7 +91,6 @@
       letter-spacing: .01em;
     }
     .tab.on { color: var(--text); border-bottom-color: var(--text); }
-
     .logcard {
       background: var(--s1);
       border: 1px solid var(--border);
@@ -105,26 +102,89 @@
       gap: 10px;
       animation: fadeUp .2s ease;
     }
-
     .tag {
       font-size: 10px;
       border-radius: 5px;
       padding: 2px 6px;
       font-family: 'JetBrains Mono', monospace;
     }
-
     a { color: var(--c); }
+
+    /* Camera overlay */
+    .scanner-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+    }
+    .scanner-video {
+      width: 100%;
+      flex: 1;
+      object-fit: cover;
+    }
+    .scanner-frame {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -60%);
+      width: 240px;
+      height: 160px;
+      pointer-events: none;
+    }
+    .scanner-frame::before,
+    .scanner-frame::after {
+      content: '';
+      position: absolute;
+      width: 30px;
+      height: 30px;
+      border-color: var(--p);
+      border-style: solid;
+    }
+    .scanner-frame::before { top: 0; left: 0; border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+    .scanner-frame::after  { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+    .scanner-frame-tr,
+    .scanner-frame-bl {
+      position: absolute;
+      width: 30px;
+      height: 30px;
+      border-color: var(--p);
+      border-style: solid;
+    }
+    .scanner-frame-tr { top: 0; right: 0; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+    .scanner-frame-bl { bottom: 0; left: 0; border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+    .scanner-line {
+      position: absolute;
+      left: 4px;
+      right: 4px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--p), transparent);
+      animation: scanline 2s ease-in-out infinite;
+    }
+
+    /* Source badge */
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 20px;
+      font-family: 'JetBrains Mono', monospace;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
 <div id="app"></div>
 <script type="module">
 import { h, render, Fragment } from 'https://esm.sh/preact@10.24.3';
-import { useState, useEffect, useRef } from 'https://esm.sh/preact@10.24.3/hooks';
+import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@10.24.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 const html = htm.bind(h);
 
-// ── Storage helpers ─────────────────────────────────────────────────────────
+// ── Storage helpers ──────────────────────────────────────────────────────────
 const TODAY = () => new Date().toISOString().slice(0, 10);
 const jget = (k, fb) => { try { const v = localStorage.getItem(k); return v !== null ? JSON.parse(v) : fb; } catch { return fb; } };
 const jset = (k, v) => localStorage.setItem(k, JSON.stringify(v));
@@ -133,11 +193,24 @@ const setKey = v => localStorage.setItem('ct_key', v);
 function loadLog() { const d = jget('ct_log', {}); return d.date === TODAY() ? d.items || [] : []; }
 function saveLog(log) { jset('ct_log', { date: TODAY(), items: log }); }
 const DEFAULT_GOALS = { calorieën: 2800, eiwitten: 150, koolhydraten: 200, vetten: 65 };
+
 const SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSON terug, geen tekst eromheen:
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 
-// ── Ring ────────────────────────────────────────────────────────────────────
+// ── Routing heuristiek ───────────────────────────────────────────────────────
+// Geeft true als de query eruitziet als een maaltijdbeschrijving (→ AI)
+// geeft false als het een productnaam lijkt (→ eerst OFF zoeken)
+const looksLikeMeal = q => {
+  const s = q.trim();
+  if (/\d+\s*(g|gr|gram|ml|liter|l|stuks?|el|tl|eetl|theel)\b/i.test(s)) return true;
+  if (s.split(',').length > 1) return true;
+  if (/\b(met|van|gebakken|gekookt|gegrild|geroosterd|gestoomd|rauw|bowl|bord|portie|handvol|plakje|sneetje)\b/i.test(s)) return true;
+  if (s.split(/\s+/).length > 4) return true;
+  return false;
+};
+
+// ── Ring ─────────────────────────────────────────────────────────────────────
 function Ring({ value, goal, label, color }) {
   const r = 26, c = 2 * Math.PI * r, pct = Math.min(value / goal, 1), over = value > goal;
   return html`
@@ -156,7 +229,7 @@ function Ring({ value, goal, label, color }) {
     </div>`;
 }
 
-// ── LogCard ─────────────────────────────────────────────────────────────────
+// ── LogCard ───────────────────────────────────────────────────────────────────
 function LogCard({ item, onRemove }) {
   return html`
     <div class="logcard">
@@ -164,7 +237,7 @@ function LogCard({ item, onRemove }) {
         <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.naam}</div>
         <div style="color:var(--muted);font-size:11px;margin-top:2px">${item.hoeveelheid}</div>
         <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
-          ${[['E', item.eiwitten,'var(--p)'], ['K', item.koolhydraten,'var(--c)'], ['V', item.vetten,'var(--f)']].map(([l,v,col]) => html`
+          ${[['E',item.eiwitten,'var(--p)'],['K',item.koolhydraten,'var(--c)'],['V',item.vetten,'var(--f)']].map(([l,v,col]) => html`
             <span class="tag" style="color:${col};background:${col}1a">${l} ${Math.round(v)}g</span>`)}
         </div>
       </div>
@@ -174,12 +247,12 @@ function LogCard({ item, onRemove }) {
       </div>
       <button onClick=${onRemove}
         style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:18px;padding:2px 4px;flex-shrink:0;line-height:1;transition:color .15s"
-        onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
-        onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
+        onMouseOver=${e=>e.currentTarget.style.color='var(--danger)'}
+        onMouseOut=${e=>e.currentTarget.style.color='var(--dim)'}>×</button>
     </div>`;
 }
 
-// ── SearchResult ─────────────────────────────────────────────────────────────
+// ── SearchResult card ─────────────────────────────────────────────────────────
 function SearchResult({ product, onAdd }) {
   const [qty, setQty] = useState(100);
   const [done, setDone] = useState(false);
@@ -204,7 +277,7 @@ function SearchResult({ product, onAdd }) {
       </div>
       <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
         <span style="font-size:11px;color:var(--muted)">Hoeveel:</span>
-        <input type="number" value=${qty} onInput=${e => setQty(Number(e.target.value))} min="1"
+        <input type="number" value=${qty} onInput=${e=>setQty(Number(e.target.value))} min="1"
           class="mono field" style="width:60px;padding:5px 8px;text-align:center;font-size:12px"/>
         <span style="font-size:11px;color:var(--muted)">g</span>
         <button onClick=${add} style="margin-left:auto;background:${done?'var(--p)':'var(--s2)'};color:${done?'var(--bg)':'var(--text)'};border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap">
@@ -214,105 +287,227 @@ function SearchResult({ product, onAdd }) {
     </div>`;
 }
 
-// ── App ─────────────────────────────────────────────────────────────────────
+// ── BarcodeScanner overlay ────────────────────────────────────────────────────
+function BarcodeScanner({ onDetected, onClose }) {
+  const videoRef = useRef(null);
+  const readerRef = useRef(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { BrowserMultiFormatReader } = await import('https://esm.sh/@zxing/browser@0.1.4');
+        const reader = new BrowserMultiFormatReader();
+        readerRef.current = reader;
+        await reader.decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
+          if (!active) return;
+          if (result) {
+            active = false;
+            reader.reset();
+            onDetected(result.getText());
+          }
+        });
+      } catch (e) {
+        if (active) setErr('Kan camera niet openen. Controleer de toestemmingen.');
+      }
+    })();
+    return () => {
+      active = false;
+      readerRef.current?.reset();
+    };
+  }, []);
+
+  return html`
+    <div class="scanner-overlay">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px;z-index:2">
+        <div style="color:white;font-size:15px;font-weight:600">Scan barcode</div>
+        <button onClick=${onClose}
+          style="background:rgba(255,255,255,.1);border:none;color:white;width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
+      </div>
+      <div style="position:relative;flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden">
+        <video ref=${videoRef} style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"/>
+        ${!err && html`
+          <div class="scanner-frame">
+            <div class="scanner-frame-tr"/>
+            <div class="scanner-frame-bl"/>
+            <div class="scanner-line"/>
+          </div>`}
+        ${err && html`<div style="position:relative;color:#ff6b6b;font-size:13px;text-align:center;padding:20px;background:rgba(0,0,0,.7);border-radius:10px">${err}</div>`}
+      </div>
+      <div style="padding:20px;text-align:center;color:#666;font-size:12px">
+        Richt de camera op een barcode van een product
+      </div>
+    </div>`;
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
 function App() {
-  const [log,     setLog]     = useState(loadLog);
-  const [goals,   setGoals]   = useState(() => jget('ct_goals', DEFAULT_GOALS));
-  const [key,     setKeyState]= useState(getKey);
-  const [tab,     setTab]     = useState('ai');
+  const [log,      setLog]      = useState(loadLog);
+  const [goals,    setGoals]    = useState(() => jget('ct_goals', DEFAULT_GOALS));
+  const [key,      setKeyState] = useState(getKey);
+  const [tab,      setTab]      = useState('add');
 
-  const [aiInput,   setAiInput]   = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiBericht, setAiBericht] = useState('');
-  const [aiError,   setAiError]   = useState('');
+  // Unified search state
+  const [query,    setQuery]    = useState('');
+  const [loading,  setLoading]  = useState(false);
+  const [loadMsg,  setLoadMsg]  = useState('');
+  const [results,  setResults]  = useState([]); // OFF products
+  const [bericht,  setBericht]  = useState('');
+  const [error,    setError]    = useState('');
+  const [source,   setSource]   = useState(''); // 'off' | 'ai' | 'barcode'
 
-  const [sq,      setSq]      = useState('');
-  const [sResults,setSResults]= useState([]);
-  const [sLoad,   setSLoad]   = useState(false);
-  const [sError,  setSError]  = useState('');
+  // Barcode scanner
+  const [scanning, setScanning] = useState(false);
 
-  const [gDraft,  setGDraft]  = useState(goals);
-  const [kSaved,  setKSaved]  = useState(false);
-  const [gSaved,  setGSaved]  = useState(false);
+  // Settings
+  const [gDraft, setGDraft]   = useState(goals);
+  const [kSaved, setKSaved]   = useState(false);
+  const [gSaved, setGSaved]   = useState(false);
 
-  const aiRef = useRef();
+  const inputRef = useRef();
 
   useEffect(() => saveLog(log), [log]);
 
   const totals = log.reduce((a,i) => ({
-    calorieën:   a.calorieën   + i.calorieën,
-    eiwitten:    a.eiwitten    + i.eiwitten,
-    koolhydraten:a.koolhydraten+ i.koolhydraten,
-    vetten:      a.vetten      + i.vetten,
+    calorieën:    a.calorieën    + i.calorieën,
+    eiwitten:     a.eiwitten     + i.eiwitten,
+    koolhydraten: a.koolhydraten + i.koolhydraten,
+    vetten:       a.vetten       + i.vetten,
   }), { calorieën:0, eiwitten:0, koolhydraten:0, vetten:0 });
 
   const addItems = items => setLog(p => [...p, ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
 
-  // Gemini call
-  const aiSend = async () => {
-    const k = getKey();
-    if (!aiInput.trim() || aiLoading) return;
-    if (!k) { setAiError('Voer eerst je Gemini API key in via Instellingen.'); return; }
-    setAiLoading(true); setAiError(''); setAiBericht('');
-    const msg = aiInput.trim(); setAiInput('');
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${k}`,
-        { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            system_instruction: { parts:[{ text: SYSTEM }] },
-            contents: [{ role:'user', parts:[{ text: msg }] }],
-            generationConfig: { maxOutputTokens: 2048 }
-          }) }
-      );
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
-      const text = data.candidates?.[0]?.content?.parts?.map(p => p.text||'').join('') || '';
-      const clean = text.replace(/```json|```/g, '').trim();
-      const jsonStart = clean.indexOf('{');
-      const jsonEnd = clean.lastIndexOf('}');
-      if (jsonStart === -1 || jsonEnd === -1) throw new Error('Geen geldige JSON ontvangen. Probeer een kortere beschrijving.');
-      const parsed = JSON.parse(clean.slice(jsonStart, jsonEnd + 1));
-      addItems(parsed.items || []);
-      setAiBericht(parsed.bericht || '');
-    } catch(e) {
-      setAiError('Fout: ' + (e.message || 'Probeer opnieuw.'));
-    } finally {
-      setAiLoading(false);
-      setTimeout(() => aiRef.current?.focus(), 50);
-    }
-  };
-
-  // Open Food Facts
-  const search = async () => {
-    if (!sq.trim() || sLoad) return;
-    setSLoad(true); setSError(''); setSResults([]);
-    try {
-      const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(sq)}&search_simple=1&action=process&json=1&page_size=10&lc=nl&cc=nl&fields=product_name,brands,nutriments`);
-      const data = await res.json();
-      const prods = (data.products||[]).filter(p => p.product_name && p.nutriments?.['energy-kcal_100g']);
-      if (!prods.length) setSError('Geen resultaten. Probeer een andere zoekterm.');
-      setSResults(prods.slice(0, 6));
-    } catch { setSError('Zoekfout. Controleer je verbinding.'); }
-    finally { setSLoad(false); }
-  };
-
   const addOFF = (product, qty) => {
-    const n = product.nutriments, f = qty/100;
+    const n = product.nutriments, f = qty / 100;
     addItems([{ naam: product.product_name, hoeveelheid:`${qty}g`,
       calorieën:(n['energy-kcal_100g']||0)*f, eiwitten:(n['proteins_100g']||0)*f,
       koolhydraten:(n['carbohydrates_100g']||0)*f, vetten:(n['fat_100g']||0)*f }]);
   };
 
+  // ── OFF textsearch → returns true if ≥1 result found
+  const doOffSearch = async (q) => {
+    setLoadMsg('Zoeken in database...');
+    const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=10&lc=nl&cc=nl&fields=product_name,brands,nutriments`);
+    const data = await res.json();
+    const prods = (data.products||[]).filter(p => p.product_name && p.nutriments?.['energy-kcal_100g']);
+    if (prods.length) {
+      setResults(prods.slice(0, 6));
+      setSource('off');
+      return true;
+    }
+    return false;
+  };
+
+  // ── OFF barcode lookup
+  const doOffBarcode = async (barcode) => {
+    setLoadMsg('Product opzoeken...');
+    const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
+    const data = await res.json();
+    if (data.status === 1 && data.product?.nutriments?.['energy-kcal_100g']) {
+      setResults([data.product]);
+      setSource('barcode');
+      return true;
+    }
+    return false;
+  };
+
+  // ── AI search
+  const doAiSearch = async (q) => {
+    const k = getKey();
+    if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
+    setLoadMsg('AI schat voedingswaarden...');
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${k}`,
+      { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          system_instruction: { parts:[{ text: SYSTEM }] },
+          contents: [{ role:'user', parts:[{ text: q }] }],
+          generationConfig: { maxOutputTokens: 2048 }
+        }) }
+    );
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    const text = data.candidates?.[0]?.content?.parts?.map(p => p.text||'').join('') || '';
+    const clean = text.replace(/```json|```/g,'').trim();
+    const jsonStart = clean.indexOf('{');
+    const jsonEnd = clean.lastIndexOf('}');
+    if (jsonStart === -1 || jsonEnd === -1) throw new Error('Geen geldige JSON ontvangen.');
+    const parsed = JSON.parse(clean.slice(jsonStart, jsonEnd + 1));
+    addItems(parsed.items || []);
+    setBericht(parsed.bericht || '');
+    setSource('ai');
+  };
+
+  // ── Unified search handler
+  const handleSearch = async () => {
+    const q = query.trim();
+    if (!q || loading) return;
+    setLoading(true);
+    setError('');
+    setResults([]);
+    setBericht('');
+    setSource('');
+    try {
+      if (looksLikeMeal(q)) {
+        // Looks like a meal description → AI directly
+        await doAiSearch(q);
+        setQuery('');
+      } else {
+        // Looks like a product name → try OFF first
+        const found = await doOffSearch(q);
+        if (!found) {
+          // Fallback to AI
+          await doAiSearch(q);
+          setQuery('');
+        }
+      }
+    } catch(e) {
+      setError('Fout: ' + (e.message || 'Probeer opnieuw.'));
+    } finally {
+      setLoading(false);
+      setLoadMsg('');
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  };
+
+  // ── Barcode detected
+  const handleBarcode = async (code) => {
+    setScanning(false);
+    setQuery(code);
+    setLoading(true);
+    setError('');
+    setResults([]);
+    setBericht('');
+    setSource('');
+    try {
+      const found = await doOffBarcode(code);
+      if (!found) setError(`Barcode ${code} niet gevonden in de database.`);
+    } catch {
+      setError('Fout bij opzoeken van barcode.');
+    } finally {
+      setLoading(false);
+      setLoadMsg('');
+    }
+  };
+
   const calPct = Math.min(totals.calorieën / goals.calorieën, 1);
   const calOver = totals.calorieën > goals.calorieën;
 
+  const sourceBadge = (s) => {
+    if (s === 'off')     return html`<span class="source-badge" style="background:#7fa4b81a;color:var(--c)">● Open Food Facts</span>`;
+    if (s === 'barcode') return html`<span class="source-badge" style="background:#85b0981a;color:var(--p)">● Barcode scan</span>`;
+    if (s === 'ai')      return html`<span class="source-badge" style="background:#b89e721a;color:var(--f)">✦ AI schatting</span>`;
+    return null;
+  };
+
   return html`<div>
+
+    ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
 
     <!-- ── Header ── -->
     <div style="background:var(--s1);border-bottom:1px solid var(--border);padding:16px;position:sticky;top:0;z-index:20">
       <div style="max-width:480px;margin:0 auto">
-
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
           <div>
             <div style="font-size:16px;font-weight:700;letter-spacing:-.3px">CalorieTracker</div>
@@ -320,7 +515,7 @@ function App() {
               ${new Date().toLocaleDateString('nl-NL',{weekday:'long',day:'numeric',month:'long'})}
             </div>
           </div>
-          <button onClick=${()=>{setLog([]);setAiBericht('');}}
+          <button onClick=${()=>{setLog([]);setBericht('');setResults([]);setSource('');}}
             style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 11px;font-size:11px;cursor:pointer;transition:all .15s"
             onMouseOver=${e=>{e.currentTarget.style.color='var(--danger)';e.currentTarget.style.borderColor='var(--danger)'}}
             onMouseOut=${e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.borderColor='var(--border)'}}>
@@ -328,7 +523,6 @@ function App() {
           </button>
         </div>
 
-        <!-- Calorie bar -->
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:6px">
           <span>Calorieën</span>
           <span class="mono" style="color:${calOver?'var(--danger)':'var(--text)'};font-weight:600">
@@ -339,20 +533,18 @@ function App() {
           <div style="width:${calPct*100}%;height:100%;background:${calOver?'var(--danger)':'var(--text)'};border-radius:6px;transition:width .5s ease"/>
         </div>
 
-        <!-- Macro rings -->
         <div style="display:flex;justify-content:space-around;margin-top:16px">
           <${Ring} value=${totals.eiwitten}     goal=${goals.eiwitten}     label="Eiwitten"     color="var(--p)"/>
           <${Ring} value=${totals.koolhydraten} goal=${goals.koolhydraten} label="Koolhydraten" color="var(--c)"/>
           <${Ring} value=${totals.vetten}       goal=${goals.vetten}       label="Vetten"       color="var(--f)"/>
         </div>
-
       </div>
     </div>
 
     <!-- ── Tabs ── -->
     <div style="background:var(--bg);border-bottom:1px solid var(--border)">
       <div style="max-width:480px;margin:0 auto;display:flex">
-        ${[['ai','AI Maaltijd'],['search','Product zoeken'],['settings','Instellingen']].map(([id,lbl]) => html`
+        ${[['add','Toevoegen'],['settings','Instellingen']].map(([id,lbl]) => html`
           <button class=${'tab'+(tab===id?' on':'')} onClick=${()=>setTab(id)}>${lbl}</button>`)}
       </div>
     </div>
@@ -360,42 +552,77 @@ function App() {
     <!-- ── Content ── -->
     <div style="max-width:480px;margin:0 auto;padding:16px 14px 80px">
 
-      <!-- AI tab -->
-      ${tab==='ai' && html`<div>
-        <div class="card">
-          <textarea ref=${aiRef} value=${aiInput}
-            onInput=${e=>setAiInput(e.target.value)}
-            onKeyDown=${e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();aiSend();}}}
-            placeholder='bijv. "bowl met 150g rijst, 200g kipfilet en geroosterde paprika"'
-            rows="3" disabled=${aiLoading}
-            class="field" style="resize:none;line-height:1.5;margin-bottom:10px"/>
-          <button class=${'btn'+(aiLoading?' loading':'')} onClick=${aiSend} disabled=${aiLoading||!aiInput.trim()}>
-            ${aiLoading ? 'Berekenen...' : '+ Toevoegen'}
-          </button>
-          ${aiError && html`<div style="color:var(--danger);font-size:12px;margin-top:8px;text-align:center">${aiError}</div>`}
-        </div>
-        ${aiBericht && html`
-          <div class="card fade-up" style="border-color:var(--dim);font-size:12px;color:#888;line-height:1.6;margin-bottom:0">
-            ${aiBericht}
-          </div>`}
-      </div>`}
-
-      <!-- Search tab -->
-      ${tab==='search' && html`<div>
+      <!-- Add tab -->
+      ${tab==='add' && html`<div>
         <div class="card">
           <div style="display:flex;gap:8px">
-            <input value=${sq} onInput=${e=>setSq(e.target.value)}
-              onKeyDown=${e=>e.key==='Enter'&&search()}
-              placeholder='bijv. "Deka volkoren brood" of "Calvé pindakaas"'
+            <!-- Camera / barcode knop -->
+            <button onClick=${()=>setScanning(true)} title="Scan barcode"
+              style="flex-shrink:0;width:42px;height:42px;background:var(--s2);border:1px solid var(--border);border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s;color:var(--muted)"
+              onMouseOver=${e=>{e.currentTarget.style.borderColor='var(--text)';e.currentTarget.style.color='var(--text)'}}
+              onMouseOut=${e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--muted)'}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+                <path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+                <line x1="7" y1="12" x2="7" y2="12.01"/><line x1="17" y1="12" x2="17" y2="12.01"/>
+                <line x1="12" y1="7" x2="12" y2="17"/>
+              </svg>
+            </button>
+            <input ref=${inputRef} value=${query}
+              onInput=${e=>{ setQuery(e.target.value); if(results.length||bericht||error){ setResults([]); setBericht(''); setError(''); setSource(''); } }}
+              onKeyDown=${e=>e.key==='Enter'&&handleSearch()}
+              placeholder='Product, maaltijd of laat camera barcode scannen…'
               class="field" style="flex:1"/>
-            <button onClick=${search} disabled=${sLoad||!sq.trim()}
-              style="background:var(--text);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${sLoad||!sq.trim()?'.3':'1'};white-space:nowrap;flex-shrink:0">
-              ${sLoad ? '...' : 'Zoek'}
+            <button onClick=${handleSearch} disabled=${loading||!query.trim()}
+              style="flex-shrink:0;background:var(--text);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${loading||!query.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
+              ${loading ? '...' : 'Zoek'}
             </button>
           </div>
-          ${sError && html`<div style="color:var(--danger);font-size:12px;margin-top:8px">${sError}</div>`}
+
+          ${loading && html`
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 0">
+              <div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--text);border-radius:50%;animation:pulse .8s linear infinite;flex-shrink:0"/>
+              <span style="font-size:12px;color:var(--muted)">${loadMsg}</span>
+            </div>`}
+
+          ${error && html`<div style="color:var(--danger);font-size:12px;margin-top:8px">${error}</div>`}
         </div>
-        ${sResults.map(p => html`<${SearchResult} product=${p} onAdd=${addOFF}/>`)}
+
+        <!-- Hint tekst (alleen als niets bezig) -->
+        ${!loading && !results.length && !bericht && !error && html`
+          <div style="font-size:11px;color:var(--dim);line-height:1.7;margin-bottom:12px;padding:0 2px">
+            <span style="color:var(--muted)">Productnaam</span> → zoekt in database &nbsp;·&nbsp;
+            <span style="color:var(--muted)">Maaltijdbeschrijving</span> → AI schat →
+            bij geen resultaat ook automatisch AI
+          </div>`}
+
+        <!-- Resultaten -->
+        ${(results.length > 0 || bericht) && html`
+          <div style="margin-bottom:4px">${sourceBadge(source)}</div>`}
+
+        ${results.map(p => html`<${SearchResult} product=${p} onAdd=${addOFF}/>`)}
+
+        ${bericht && html`
+          <div class="card fade-up" style="border-color:var(--dim);font-size:12px;color:#888;line-height:1.6;margin-bottom:0">
+            ${bericht}
+          </div>`}
+
+        <!-- Log -->
+        ${log.length > 0 && html`
+          <div style="margin-top:20px">
+            <div style="font-size:11px;color:var(--dim);margin-bottom:10px">
+              Vandaag — ${log.length} item${log.length!==1?'s':''}
+            </div>
+            ${[...log].reverse().map(item => html`
+              <${LogCard} key=${item.id} item=${item}
+                onRemove=${()=>setLog(p=>p.filter(i=>i.id!==item.id))}/>`)}
+          </div>`}
+
+        ${log.length===0 && html`
+          <div style="text-align:center;color:var(--border);padding:44px 20px;font-size:13px">
+            <div style="font-size:30px;margin-bottom:10px">🍽</div>
+            Nog niets gelogd vandaag
+          </div>`}
       </div>`}
 
       <!-- Settings tab -->
@@ -426,23 +653,6 @@ function App() {
           }}>${gSaved ? '✓ Opgeslagen' : 'Doelen opslaan'}</button>
         </div>
       </div>`}
-
-      <!-- Log (altijd zichtbaar) -->
-      ${log.length > 0 && html`
-        <div style="margin-top:20px">
-          <div style="font-size:11px;color:var(--dim);margin-bottom:10px">
-            Vandaag — ${log.length} item${log.length!==1?'s':''}
-          </div>
-          ${[...log].reverse().map(item => html`
-            <${LogCard} key=${item.id} item=${item}
-              onRemove=${()=>setLog(p=>p.filter(i=>i.id!==item.id))}/>`)}
-        </div>`}
-
-      ${log.length===0 && tab!=='settings' && html`
-        <div style="text-align:center;color:var(--border);padding:44px 20px;font-size:13px">
-          <div style="font-size:30px;margin-bottom:10px">🍽</div>
-          Nog niets gelogd vandaag
-        </div>`}
 
     </div>
   </div>`;
