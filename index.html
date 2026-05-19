@@ -132,7 +132,7 @@ const getKey = () => localStorage.getItem('ct_key') || '';
 const setKey = v => localStorage.setItem('ct_key', v);
 function loadLog() { const d = jget('ct_log', {}); return d.date === TODAY() ? d.items || [] : []; }
 function saveLog(log) { jset('ct_log', { date: TODAY(), items: log }); }
-const DEFAULT_GOALS = { calorieën: 2000, eiwitten: 150, koolhydraten: 200, vetten: 65 };
+const DEFAULT_GOALS = { calorieën: 2800, eiwitten: 150, koolhydraten: 200, vetten: 65 };
 const SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSON terug, geen tekst eromheen:
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
@@ -262,13 +262,17 @@ function App() {
           body: JSON.stringify({
             system_instruction: { parts:[{ text: SYSTEM }] },
             contents: [{ role:'user', parts:[{ text: msg }] }],
-            generationConfig: { maxOutputTokens: 1000 }
+            generationConfig: { maxOutputTokens: 2048 }
           }) }
       );
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
       const text = data.candidates?.[0]?.content?.parts?.map(p => p.text||'').join('') || '';
-      const parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
+      const clean = text.replace(/```json|```/g, '').trim();
+      const jsonStart = clean.indexOf('{');
+      const jsonEnd = clean.lastIndexOf('}');
+      if (jsonStart === -1 || jsonEnd === -1) throw new Error('Geen geldige JSON ontvangen. Probeer een kortere beschrijving.');
+      const parsed = JSON.parse(clean.slice(jsonStart, jsonEnd + 1));
       addItems(parsed.items || []);
       setAiBericht(parsed.bericht || '');
     } catch(e) {
