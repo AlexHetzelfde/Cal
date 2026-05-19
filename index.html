@@ -289,9 +289,23 @@ function SearchResult({ product, onAdd }) {
 
 // ── BarcodeScanner overlay ────────────────────────────────────────────────────
 function BarcodeScanner({ onDetected, onClose }) {
-  const videoRef = useRef(null);
+  const videoRef  = useRef(null);
   const readerRef = useRef(null);
-  const [err, setErr] = useState('');
+  const [err,   setErr]   = useState('');
+  const [found, setFound] = useState(null); // barcode string once detected
+
+  const stopStream = () => {
+    // Stop all camera tracks explicitly so no black-frame flash
+    try {
+      if (videoRef.current?.srcObject) {
+        videoRef.current.srcObject.getTracks().forEach(t => t.stop());
+        videoRef.current.srcObject = null;
+      }
+    } catch {}
+    try { readerRef.current?.reset(); } catch {}
+  };
+
+  const handleClose = () => { stopStream(); onClose(); };
 
   useEffect(() => {
     let active = true;
@@ -304,39 +318,48 @@ function BarcodeScanner({ onDetected, onClose }) {
           if (!active) return;
           if (result) {
             active = false;
-            reader.reset();
-            onDetected(result.getText());
+            const code = result.getText();
+            stopStream();           // stop camera before any state change
+            setFound(code);         // show confirmation overlay
+            setTimeout(() => onDetected(code), 900);
           }
         });
       } catch (e) {
         if (active) setErr('Kan camera niet openen. Controleer de toestemmingen.');
       }
     })();
-    return () => {
-      active = false;
-      readerRef.current?.reset();
-    };
+    return () => { active = false; stopStream(); };
   }, []);
 
   return html`
     <div class="scanner-overlay">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:16px;z-index:2">
         <div style="color:white;font-size:15px;font-weight:600">Scan barcode</div>
-        <button onClick=${onClose}
+        <button onClick=${handleClose}
           style="background:rgba(255,255,255,.1);border:none;color:white;width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
       </div>
       <div style="position:relative;flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden">
-        <video ref=${videoRef} style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"/>
-        ${!err && html`
+        <!-- Video altijd in de DOM, maar verborgen na detectie -->
+        <video ref=${videoRef} style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:${found?0:1};transition:opacity .2s"/>
+
+        ${!err && !found && html`
           <div class="scanner-frame">
             <div class="scanner-frame-tr"/>
             <div class="scanner-frame-bl"/>
             <div class="scanner-line"/>
           </div>`}
+
+        ${found && html`
+          <div class="fade-up" style="position:relative;z-index:3;text-align:center">
+            <div style="font-size:40px;margin-bottom:12px">✓</div>
+            <div style="color:var(--p);font-size:15px;font-weight:700">Barcode gevonden</div>
+            <div class="mono" style="color:var(--muted);font-size:12px;margin-top:6px">${found}</div>
+          </div>`}
+
         ${err && html`<div style="position:relative;color:#ff6b6b;font-size:13px;text-align:center;padding:20px;background:rgba(0,0,0,.7);border-radius:10px">${err}</div>`}
       </div>
       <div style="padding:20px;text-align:center;color:#666;font-size:12px">
-        Richt de camera op een barcode van een product
+        ${found ? 'Product wordt opgezocht…' : 'Richt de camera op een barcode van een product'}
       </div>
     </div>`;
 }
@@ -544,8 +567,12 @@ function App() {
     <!-- ── Tabs ── -->
     <div style="background:var(--bg);border-bottom:1px solid var(--border)">
       <div style="max-width:480px;margin:0 auto;display:flex">
-        ${[['add','Toevoegen'],['settings','Instellingen']].map(([id,lbl]) => html`
-          <button class=${'tab'+(tab===id?' on':'')} onClick=${()=>setTab(id)}>${lbl}</button>`)}
+        <button class=${'tab'+(tab==='add'?' on':'')} onClick=${()=>setTab('add')}>Toevoegen</button>
+        <button class=${'tab'+(tab==='settings'?' on':'')} onClick=${()=>setTab('settings')}
+          style="display:flex;align-items:center;justify-content:center;gap:5px">
+          Instellingen
+          <span style="width:7px;height:7px;border-radius:50%;background:${key?'var(--p)':'var(--danger)'};flex-shrink:0"/>
+        </button>
       </div>
     </div>
 
@@ -629,6 +656,12 @@ function App() {
       ${tab==='settings' && html`<div>
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:10px">Gemini API Key</div>
+          <div style="display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:9px;margin-bottom:12px;background:${key?'#85b0981a':'#b872721a'};border:1px solid ${key?'#85b09840':'#b8727240'}">
+            <span style="width:7px;height:7px;border-radius:50%;background:${key?'var(--p)':'var(--danger)'};flex-shrink:0"/>
+            <span style="font-size:12px;color:${key?'var(--p)':'var(--danger)'}">
+              ${key ? 'API key opgeslagen' : 'Geen API key — AI zoeken werkt niet'}
+            </span>
+          </div>
           <input type="password" value=${key} onInput=${e=>setKeyState(e.target.value)}
             placeholder="AIza..." class="field" style="margin-bottom:10px"/>
           <button class=${'btn'+(kSaved?' success':'')} onClick=${()=>{
