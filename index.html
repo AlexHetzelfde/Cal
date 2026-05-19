@@ -160,13 +160,25 @@ function loadLog() { const d = jget('ct_log', {}); return d.date === TODAY() ? d
 function saveLog(log) { jset('ct_log', { date: TODAY(), items: log }); }
 const DEFAULT_GOALS = { calorieën: 2800, eiwitten: 150, koolhydraten: 200, vetten: 65 };
 
-// ── Prompts ──────────────────────────────────────────────────────────────────
-const SPLIT_SYSTEM = `Splits de gebruikersinvoer in losse producten. Geef ALLEEN valide JSON:
-{"producten":[{"qty":150,"clean":"zaanse hoeve volle yoghurt"},{"qty":100,"clean":"campina magere kwark"}]}
-- qty = hoeveelheid als getal in gram of ml. Gebruik 100 als niet opgegeven.
-- clean = productnaam zonder hoeveelheid of eenheid.
-ALLEEN JSON, niets anders.`;
+// ── Rule-based split ──────────────────────────────────────────────────────────
+// Splits op komma, OF waar een nieuw getal begint na tekst.
+// "150g yoghurt, 100g kwark"  → twee producten  ✓
+// "150g yoghurt 100g kwark"   → twee producten  ✓
+// "mac en cheese"             → één product     ✓
+const ruleBasedSplit = (q) => {
+  return q
+    .split(/,|(?<=\S)\s+(?=\d)/)
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map(part => {
+      const match = part.match(/^(\d+(?:[.,]\d+)?)\s*(?:gram|g|ml|liter|l|kg|stuks?|x)?\s*/i);
+      const qty   = match ? parseFloat(match[1].replace(',', '.')) : 100;
+      const clean = match ? part.slice(match[0].length).trim() : part.trim();
+      return { qty, clean };
+    });
+};
 
+// ── Prompt ───────────────────────────────────────────────────────────────────
 const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSON:
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
@@ -190,7 +202,6 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
         }) }
     );
     const data = await res.json();
-    // Rate limit → wacht even en probeer volgend model
     if (data.error?.code === 429 || data.error?.status === 'RESOURCE_EXHAUSTED') {
       if (i < MODELS.length - 1) {
         await new Promise(r => setTimeout(r, 1500));
@@ -211,7 +222,7 @@ const parseGeminiJson = (data) => {
   return JSON.parse(clean.slice(start, end + 1));
 };
 
-// ── OFF fetch met timeout per zoekopdracht ────────────────────────────────────
+// ── OFF fetch met timeout ─────────────────────────────────────────────────────
 const timedFetch = (url, signal, ms = 8000) => Promise.race([
   fetch(url, { signal }),
   new Promise((_, rej) => setTimeout(() => rej(new Error('Verzoek duurde te lang, probeer opnieuw.')), ms))
@@ -264,7 +275,8 @@ function SearchResult({ product, onAdd, initialQty }) {
   const [qty, setQty] = useState(initialQty || 100);
   const [done, setDone] = useState(false);
   const n = product.nutriments, f = qty / 100;
-  const cal = Math.round((n['energy-kcal_100g'] || 0) * f);
+  const kcal100 = n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
+  const cal = Math.round(kcal100 * f);
   const add = () => { onAdd(product, qty); setDone(true); setTimeout(() => setDone(false), 1600); };
   return html`
     <div class="card fade-up">
@@ -359,7 +371,6 @@ function App() {
   const [query,    setQuery]    = useState('');
   const [loading,  setLoading]  = useState(false);
   const [loadMsg,  setLoadMsg]  = useState('');
-  // results = array van { product, qty } zodat elk kaartje eigen hoeveelheid heeft
   const [results,  setResults]  = useState([]);
   const [bericht,  setBericht]  = useState('');
   const [error,    setError]    = useState('');
@@ -369,8 +380,8 @@ function App() {
   const [kSaved,   setKSaved]   = useState(false);
   const [gSaved,   setGSaved]   = useState(false);
 
-  const inputRef  = useRef();
-  const abortRef  = useRef(null); // AbortController voor lopende OFF-fetches
+  const inputRef = useRef();
+  const abortRef = useRef(null);
 
   useEffect(() => saveLog(log), [log]);
 
@@ -383,40 +394,46 @@ function App() {
 
   const addItems = items => setLog(p => [...p, ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
 
+  const getKcal100g = (n) =>
+    n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
+
   const addOFF = (product, qty) => {
     const n = product.nutriments, f = qty / 100;
-    addItems([{ naam: product.product_name, hoeveelheid: `${qty}g`,
-      calorieën: (n['energy-kcal_100g'] || 0) * f, eiwitten: (n['proteins_100g'] || 0) * f,
-      koolhydraten: (n['carbohydrates_100g'] || 0) * f, vetten: (n['fat_100g'] || 0) * f }]);
+    addItems([{
+      naam: product.product_name,
+      hoeveelheid: `${qty}g`,
+      calorieën:    getKcal100g(n) * f,
+      eiwitten:     (n['proteins_100g']      || 0) * f,
+      koolhydraten: (n['carbohydrates_100g'] || 0) * f,
+      vetten:       (n['fat_100g']           || 0) * f,
+    }]);
   };
 
-  // ── OFF: zoek één product, geeft array van producten terug ────────────────
+  // ── OFF: zoek één product ─────────────────────────────────────────────────
   const offSearch = async (cleanQ, signal) => {
     const res = await timedFetch(
-      `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(cleanQ)}&search_simple=1&action=process&json=1&page_size=8&lc=nl&cc=nl&fields=product_name,brands,nutriments`,
+      `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(cleanQ)}&search_simple=1&action=process&json=1&page_size=8&fields=product_name,brands,nutriments`,
       signal
     );
     const data = await res.json();
-    return (data.products || []).filter(p => p.product_name && p.nutriments?.['energy-kcal_100g']);
+    return (data.products || []).filter(p =>
+      p.product_name &&
+      (p.nutriments?.['energy-kcal_100g'] != null || p.nutriments?.['energy_100g'] != null)
+    );
   };
 
   // ── OFF: barcode lookup ───────────────────────────────────────────────────
   const offBarcode = async (barcode, signal) => {
     const res = await timedFetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`, signal);
     const data = await res.json();
-    if (data.status === 1 && data.product?.nutriments?.['energy-kcal_100g']) return data.product;
+    if (data.status === 1 && data.product?.nutriments &&
+        (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
+      return data.product;
+    }
     return null;
   };
 
-  // ── AI: split query in losse producten ───────────────────────────────────
-  // Geeft [{ qty, clean }] terug — 1e AI call
-  const aiSplit = async (q) => {
-    const data = await callGemini(SPLIT_SYSTEM, q, 300);
-    const parsed = parseGeminiJson(data);
-    return parsed.producten || [];
-  };
-
-  // ── AI: schat voedingswaarden — 2e AI call (fallback) ────────────────────
+  // ── AI: schat voedingswaarden (alleen als OFF niks vindt) ─────────────────
   const aiNutrition = async (q) => {
     setLoadMsg('AI schat voedingswaarden...');
     const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
@@ -431,7 +448,6 @@ function App() {
     const q = query.trim();
     if (!q || loading) return;
 
-    // Cancel eventuele hangende OFF-fetches van vorige zoekopdracht
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -444,15 +460,9 @@ function App() {
     setSource('');
 
     try {
-      // ── Stap 1: AI split-call — welke losse producten zitten erin?
+      // ── Stap 1: deterministisch splitsen op "en" / ","
       setLoadMsg('Producten herkennen...');
-      let producten = [];
-      try {
-        producten = await aiSplit(q);
-      } catch {
-        // Split mislukt → behandel als één product zonder hoeveelheid
-        producten = [{ qty: 100, clean: q }];
-      }
+      const producten = ruleBasedSplit(q);
 
       // ── Stap 2: elk product apart in OFF zoeken
       setLoadMsg('Zoeken in database...');
@@ -460,7 +470,6 @@ function App() {
       for (const { qty, clean } of producten) {
         const prods = await offSearch(clean, signal);
         if (prods.length) {
-          // Maximaal 3 resultaten per product, elk met eigen qty voor pre-fill
           gevonden.push(...prods.slice(0, 3).map(product => ({ product, qty })));
         }
       }
@@ -469,12 +478,12 @@ function App() {
         setResults(gevonden);
         setSource('off');
       } else {
-        // ── Stap 3: OFF vond niks → AI fallback met originele query
+        // ── Stap 3: OFF vond niks → AI fallback
         await aiNutrition(q);
         setQuery('');
       }
     } catch (e) {
-      if (e.name === 'AbortError') return; // nieuwe zoekopdracht gestart, stil stoppen
+      if (e.name === 'AbortError') return;
       setError('Fout: ' + (e.message || 'Probeer opnieuw.'));
     } finally {
       setLoading(false);
@@ -611,7 +620,7 @@ function App() {
 
         ${!loading && !results.length && !bericht && !error && html`
           <div style="font-size:11px;color:var(--dim);line-height:1.7;margin-bottom:12px;padding:0 2px">
-            Altijd database eerst → bij geen resultaat automatisch AI schatting
+            Typ een product of meerdere gescheiden door komma of nieuw getal — bij geen resultaat automatisch AI schatting
           </div>`}
 
         ${(results.length > 0 || bericht) && html`
