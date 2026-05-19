@@ -1,0 +1,534 @@
+import { useState, useEffect, useRef } from "react";
+
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+const GEMINI_SYSTEM = `Je bent een voedingsdeskundige. De gebruiker vertelt wat hij/zij heeft gegeten.
+Geef ALLEEN een valide JSON-antwoord, geen andere tekst, geen markdown:
+{
+  "items": [
+    {
+      "naam": "naam",
+      "hoeveelheid": "bijv. 200g of 1 portie",
+      "calorieën": getal,
+      "eiwitten": getal,
+      "koolhydraten": getal,
+      "vetten": getal
+    }
+  ],
+  "bericht": "kort vriendelijk bericht in het Nederlands"
+}
+Gebruik realistische gemiddelde waarden per portie. ALLEEN JSON, niets anders.`;
+
+const TODAY = () => new Date().toISOString().slice(0, 10);
+
+const DEFAULT_GOALS = { calorieën: 2000, eiwitten: 150, koolhydraten: 200, vetten: 65 };
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function loadData() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("ct_data") || "{}");
+    if (saved.date === TODAY()) return saved.log || [];
+  } catch {}
+  return [];
+}
+
+function saveData(log) {
+  localStorage.setItem("ct_data", JSON.stringify({ date: TODAY(), log }));
+}
+
+function loadGoals() {
+  try {
+    return JSON.parse(localStorage.getItem("ct_goals") || "null") || DEFAULT_GOALS;
+  } catch { return DEFAULT_GOALS; }
+}
+
+function saveGoals(goals) {
+  localStorage.setItem("ct_goals", JSON.stringify(goals));
+}
+
+function loadApiKey() {
+  return localStorage.getItem("ct_gemini_key") || "";
+}
+
+function saveApiKey(key) {
+  localStorage.setItem("ct_gemini_key", key);
+}
+
+// ─── SUBCOMPONENTS ────────────────────────────────────────────────────────────
+function Ring({ value, goal, label, color }) {
+  const r = 28, stroke = 5, circ = 2 * Math.PI * r;
+  const pct = Math.min(value / goal, 1);
+  const over = value > goal;
+  return (
+    <div style={{ textAlign: "center", minWidth: 72 }}>
+      <svg width={72} height={72}>
+        <circle cx={36} cy={36} r={r} fill="none" stroke="#1e1e2e" strokeWidth={stroke} />
+        <circle cx={36} cy={36} r={r} fill="none" stroke={over ? "#f38ba8" : color}
+          strokeWidth={stroke} strokeDasharray={`${circ * pct} ${circ}`}
+          strokeLinecap="round" transform="rotate(-90 36 36)"
+          style={{ transition: "stroke-dasharray .5s ease" }} />
+        <text x={36} y={33} textAnchor="middle" fill="#cdd6f4" fontSize="11" fontWeight="700" fontFamily="'Space Mono', monospace">
+          {Math.round(value)}
+        </text>
+        <text x={36} y={46} textAnchor="middle" fill="#6c7086" fontSize="9" fontFamily="'Space Mono', monospace">
+          /{goal}
+        </text>
+      </svg>
+      <div style={{ fontSize: 10, color: "#9399b2", marginTop: -4, fontFamily: "'Space Mono', monospace" }}>{label}</div>
+    </div>
+  );
+}
+
+function LogCard({ item, onRemove }) {
+  return (
+    <div style={{
+      background: "#1e1e2e", border: "1px solid #313244", borderRadius: 12,
+      padding: "10px 12px", display: "flex", alignItems: "center", gap: 10,
+      animation: "fadeUp .25s ease"
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ color: "#cdd6f4", fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {item.naam}
+        </div>
+        <div style={{ color: "#6c7086", fontSize: 11, marginTop: 2 }}>{item.hoeveelheid}</div>
+        <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+          {[["E", item.eiwitten, "#a6e3a1"], ["K", item.koolhydraten, "#89b4fa"], ["V", item.vetten, "#fab387"]].map(([l, v, c]) => (
+            <span key={l} style={{
+              fontSize: 10, color: c, background: c + "20",
+              borderRadius: 4, padding: "1px 5px", fontFamily: "'Space Mono', monospace"
+            }}>{l} {Math.round(v)}g</span>
+          ))}
+        </div>
+      </div>
+      <div style={{ textAlign: "right", flexShrink: 0 }}>
+        <div style={{ color: "#cba6f7", fontWeight: 700, fontSize: 16, fontFamily: "'Space Mono', monospace" }}>
+          {Math.round(item.calorieën)}
+        </div>
+        <div style={{ color: "#6c7086", fontSize: 9 }}>kcal</div>
+      </div>
+      <button onClick={onRemove} style={{
+        background: "none", border: "none", color: "#45475a", cursor: "pointer",
+        fontSize: 16, padding: "2px 4px", flexShrink: 0, lineHeight: 1
+      }}
+        onMouseOver={e => e.target.style.color = "#f38ba8"}
+        onMouseOut={e => e.target.style.color = "#45475a"}>×</button>
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+export default function App() {
+  const [log, setLog] = useState(loadData);
+  const [goals, setGoals] = useState(loadGoals);
+  const [apiKey, setApiKey] = useState(loadApiKey);
+
+  const [tab, setTab] = useState("ai"); // ai | search | settings
+  const [aiInput, setAiInput] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiBericht, setAiBericht] = useState("");
+  const [aiError, setAiError] = useState("");
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState("");
+
+  const [goalDraft, setGoalDraft] = useState(goals);
+  const [keySaved, setKeySaved] = useState(false);
+
+  const aiRef = useRef();
+
+  const totals = log.reduce((a, i) => ({
+    calorieën: a.calorieën + i.calorieën,
+    eiwitten: a.eiwitten + i.eiwitten,
+    koolhydraten: a.koolhydraten + i.koolhydraten,
+    vetten: a.vetten + i.vetten,
+  }), { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
+
+  useEffect(() => saveData(log), [log]);
+
+  const addItems = (items) => setLog(prev => [
+    ...prev,
+    ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))
+  ]);
+
+  // ── Gemini call ──
+  const handleAiSend = async () => {
+    if (!aiInput.trim() || aiLoading) return;
+    if (!apiKey) { setAiError("Voer eerst je Gemini API key in via Instellingen."); return; }
+    setAiLoading(true); setAiError(""); setAiBericht("");
+    const userMsg = aiInput.trim();
+    setAiInput("");
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: GEMINI_SYSTEM }] },
+            contents: [{ role: "user", parts: [{ text: userMsg }] }],
+            generationConfig: { maxOutputTokens: 1000 }
+          })
+        }
+      );
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
+      const clean = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      addItems(parsed.items || []);
+      setAiBericht(parsed.bericht || "");
+    } catch (e) {
+      setAiError("Fout: " + (e.message || "Probeer opnieuw."));
+    } finally {
+      setAiLoading(false);
+      setTimeout(() => aiRef.current?.focus(), 50);
+    }
+  };
+
+  // ── Open Food Facts search ──
+  const handleSearch = async () => {
+    if (!searchQuery.trim() || searchLoading) return;
+    setSearchLoading(true); setSearchError(""); setSearchResults([]);
+    try {
+      const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(searchQuery)}&search_simple=1&action=process&json=1&page_size=8&lc=nl&cc=nl&fields=product_name,brands,nutriments,serving_size,quantity`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const products = (data.products || []).filter(p =>
+        p.product_name && p.nutriments?.["energy-kcal_100g"]
+      );
+      if (!products.length) setSearchError("Geen producten gevonden. Probeer een andere zoekterm.");
+      setSearchResults(products.slice(0, 6));
+    } catch {
+      setSearchError("Zoekfout. Controleer je internetverbinding.");
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const addFromOFF = (product, qty) => {
+    const n = product.nutriments;
+    const per100 = {
+      calorieën: n["energy-kcal_100g"] || 0,
+      eiwitten: n["proteins_100g"] || 0,
+      koolhydraten: n["carbohydrates_100g"] || 0,
+      vetten: n["fat_100g"] || 0,
+    };
+    const factor = qty / 100;
+    addItems([{
+      naam: product.product_name,
+      hoeveelheid: `${qty}g`,
+      calorieën: per100.calorieën * factor,
+      eiwitten: per100.eiwitten * factor,
+      koolhydraten: per100.koolhydraten * factor,
+      vetten: per100.vetten * factor,
+    }]);
+  };
+
+  const calPct = Math.min(totals.calorieën / goals.calorieën, 1);
+  const calOver = totals.calorieën > goals.calorieën;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#11111b", color: "#cdd6f4", fontFamily: "'DM Sans', sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+        textarea,input { caret-color: #cba6f7; }
+        ::-webkit-scrollbar { width: 3px; }
+        ::-webkit-scrollbar-thumb { background: #313244; border-radius: 2px; }
+      `}</style>
+
+      {/* ── HEADER ── */}
+      <div style={{ background: "#1e1e2e", borderBottom: "1px solid #313244", padding: "14px 16px", position: "sticky", top: 0, zIndex: 20 }}>
+        <div style={{ maxWidth: 480, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: -0.5 }}>
+                🥗 <span style={{ color: "#cba6f7" }}>Calorie</span>Tracker
+              </div>
+              <div style={{ fontSize: 11, color: "#6c7086", fontFamily: "'Space Mono', monospace", marginTop: 1 }}>
+                {new Date().toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long" })}
+              </div>
+            </div>
+            <button onClick={() => { setLog([]); setAiBericht(""); }}
+              style={{ background: "#11111b", border: "1px solid #313244", color: "#6c7086", borderRadius: 8, padding: "5px 10px", fontSize: 11, cursor: "pointer" }}
+              onMouseOver={e => e.currentTarget.style.borderColor = "#f38ba820"}
+              onMouseOut={e => e.currentTarget.style.borderColor = "#313244"}>
+              Reset dag
+            </button>
+          </div>
+
+          {/* Calorie progress bar */}
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#9399b2", marginBottom: 5, fontFamily: "'Space Mono', monospace" }}>
+              <span>Calorieën vandaag</span>
+              <span style={{ color: calOver ? "#f38ba8" : "#cba6f7", fontWeight: 700 }}>
+                {Math.round(totals.calorieën)} / {goals.calorieën} kcal
+              </span>
+            </div>
+            <div style={{ background: "#11111b", borderRadius: 8, height: 7, overflow: "hidden" }}>
+              <div style={{
+                width: `${calPct * 100}%`, height: "100%",
+                background: calOver
+                  ? "linear-gradient(90deg, #f38ba8, #eba0ac)"
+                  : "linear-gradient(90deg, #cba6f7, #89dceb)",
+                borderRadius: 8, transition: "width .5s ease"
+              }} />
+            </div>
+          </div>
+
+          {/* Macro rings */}
+          <div style={{ display: "flex", justifyContent: "space-around", marginTop: 14 }}>
+            <Ring value={totals.eiwitten} goal={goals.eiwitten} label="Eiwitten" color="#a6e3a1" />
+            <Ring value={totals.koolhydraten} goal={goals.koolhydraten} label="Koolhydraten" color="#89b4fa" />
+            <Ring value={totals.vetten} goal={goals.vetten} label="Vetten" color="#fab387" />
+          </div>
+        </div>
+      </div>
+
+      {/* ── TABS ── */}
+      <div style={{ background: "#181825", borderBottom: "1px solid #313244", position: "sticky", top: 115, zIndex: 19 }}>
+        <div style={{ maxWidth: 480, margin: "0 auto", display: "flex" }}>
+          {[["ai", "🤖 AI Maaltijd"], ["search", "🔍 Product zoeken"], ["settings", "⚙️ Doelen"]].map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)} style={{
+              flex: 1, background: "none", border: "none", color: tab === id ? "#cba6f7" : "#6c7086",
+              borderBottom: tab === id ? "2px solid #cba6f7" : "2px solid transparent",
+              padding: "10px 4px", fontSize: 12, cursor: "pointer", fontWeight: tab === id ? 600 : 400,
+              fontFamily: "'DM Sans', sans-serif", transition: "all .15s"
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "16px 14px 60px" }}>
+
+        {/* ── AI TAB ── */}
+        {tab === "ai" && (
+          <div>
+            <div style={{ background: "#1e1e2e", border: "1px solid #313244", borderRadius: 14, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: "#45475a", fontFamily: "'Space Mono', monospace", marginBottom: 8 }}>
+                // beschrijf wat je hebt gegeten
+              </div>
+              <textarea ref={aiRef} value={aiInput} onChange={e => setAiInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAiSend(); } }}
+                placeholder='bijv. "bowl met 150g zilvervliesrijst, 200g kipfilet en broccoli"'
+                rows={3} disabled={aiLoading}
+                style={{
+                  width: "100%", background: "#11111b", border: "1px solid #313244", borderRadius: 10,
+                  color: "#cdd6f4", padding: "10px 12px", fontSize: 13, resize: "none",
+                  fontFamily: "'DM Sans', sans-serif", lineHeight: 1.5, transition: "border-color .2s"
+                }}
+                onFocus={e => e.target.style.borderColor = "#cba6f7"}
+                onBlur={e => e.target.style.borderColor = "#313244"} />
+              <button onClick={handleAiSend} disabled={aiLoading || !aiInput.trim()} style={{
+                marginTop: 10, width: "100%", padding: "11px",
+                background: aiLoading ? "#1e1e2e" : "#cba6f7", color: aiLoading ? "#cba6f7" : "#11111b",
+                border: aiLoading ? "1px solid #cba6f730" : "none", borderRadius: 10,
+                fontWeight: 700, fontSize: 13, cursor: aiLoading ? "default" : "pointer",
+                fontFamily: "'DM Sans', sans-serif", animation: aiLoading ? "pulse 1s infinite" : "none"
+              }}>
+                {aiLoading ? "⏳ Berekenen..." : "➕ Toevoegen"}
+              </button>
+              {aiError && <div style={{ color: "#f38ba8", fontSize: 12, marginTop: 8, textAlign: "center" }}>{aiError}</div>}
+            </div>
+
+            {aiBericht && (
+              <div style={{
+                background: "#1e1e2e", border: "1px solid #cba6f730", borderRadius: 12,
+                padding: "10px 12px", marginBottom: 14, fontSize: 12, color: "#b4befe",
+                lineHeight: 1.6, animation: "fadeUp .3s ease"
+              }}>
+                💬 {aiBericht}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── SEARCH TAB ── */}
+        {tab === "search" && (
+          <div>
+            <div style={{ background: "#1e1e2e", border: "1px solid #313244", borderRadius: 14, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: "#45475a", fontFamily: "'Space Mono', monospace", marginBottom: 8 }}>
+                // zoek een verpakt product (via Open Food Facts)
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleSearch()}
+                  placeholder='bijv. "Deka volkoren brood" of "Hagelslag"'
+                  style={{
+                    flex: 1, background: "#11111b", border: "1px solid #313244", borderRadius: 10,
+                    color: "#cdd6f4", padding: "10px 12px", fontSize: 13,
+                    fontFamily: "'DM Sans', sans-serif", transition: "border-color .2s"
+                  }}
+                  onFocus={e => e.target.style.borderColor = "#89b4fa"}
+                  onBlur={e => e.target.style.borderColor = "#313244"} />
+                <button onClick={handleSearch} disabled={searchLoading || !searchQuery.trim()} style={{
+                  background: "#89b4fa", color: "#11111b", border: "none", borderRadius: 10,
+                  padding: "10px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer",
+                  fontFamily: "'DM Sans', sans-serif"
+                }}>
+                  {searchLoading ? "..." : "Zoek"}
+                </button>
+              </div>
+              {searchError && <div style={{ color: "#f38ba8", fontSize: 12, marginTop: 8 }}>{searchError}</div>}
+            </div>
+
+            {searchResults.map((p, i) => (
+              <SearchResult key={i} product={p} onAdd={addFromOFF} />
+            ))}
+          </div>
+        )}
+
+        {/* ── SETTINGS TAB ── */}
+        {tab === "settings" && (
+          <div>
+            {/* API Key */}
+            <div style={{ background: "#1e1e2e", border: "1px solid #313244", borderRadius: 14, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 12, color: "#9399b2", fontWeight: 600, marginBottom: 10 }}>🔑 Gemini API Key</div>
+              <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
+                placeholder="AIza..."
+                style={{
+                  width: "100%", background: "#11111b", border: "1px solid #313244", borderRadius: 10,
+                  color: "#cdd6f4", padding: "10px 12px", fontSize: 13, fontFamily: "'DM Sans', sans-serif"
+                }} />
+              <button onClick={() => { saveApiKey(apiKey); setKeySaved(true); setTimeout(() => setKeySaved(false), 2000); }}
+                style={{
+                  marginTop: 10, width: "100%", background: keySaved ? "#a6e3a1" : "#313244",
+                  color: keySaved ? "#11111b" : "#cdd6f4", border: "none", borderRadius: 10,
+                  padding: "10px", fontWeight: 600, fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif"
+                }}>
+                {keySaved ? "✓ Opgeslagen!" : "Opslaan"}
+              </button>
+              <div style={{ fontSize: 11, color: "#45475a", marginTop: 8, lineHeight: 1.5 }}>
+                Haal je gratis key op via{" "}
+                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer"
+                  style={{ color: "#89b4fa" }}>aistudio.google.com/apikey</a>
+              </div>
+            </div>
+
+            {/* Goals */}
+            <div style={{ background: "#1e1e2e", border: "1px solid #313244", borderRadius: 14, padding: 14 }}>
+              <div style={{ fontSize: 12, color: "#9399b2", fontWeight: 600, marginBottom: 12 }}>🎯 Dagelijkse doelen</div>
+              {[
+                ["calorieën", "Calorieën (kcal)", "#cba6f7"],
+                ["eiwitten", "Eiwitten (g)", "#a6e3a1"],
+                ["koolhydraten", "Koolhydraten (g)", "#89b4fa"],
+                ["vetten", "Vetten (g)", "#fab387"],
+              ].map(([key, label, color]) => (
+                <div key={key} style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, color: "#9399b2", marginBottom: 5 }}>{label}</div>
+                  <input type="number" value={goalDraft[key]}
+                    onChange={e => setGoalDraft(prev => ({ ...prev, [key]: Number(e.target.value) }))}
+                    style={{
+                      width: "100%", background: "#11111b", border: `1px solid ${color}40`,
+                      borderRadius: 10, color: color, padding: "9px 12px",
+                      fontSize: 14, fontFamily: "'Space Mono', monospace", fontWeight: 700
+                    }} />
+                </div>
+              ))}
+              <button onClick={() => { setGoals(goalDraft); saveGoals(goalDraft); }}
+                style={{
+                  width: "100%", background: "linear-gradient(135deg, #cba6f7, #89dceb)",
+                  color: "#11111b", border: "none", borderRadius: 10,
+                  padding: "11px", fontWeight: 700, fontSize: 13, cursor: "pointer",
+                  fontFamily: "'DM Sans', sans-serif"
+                }}>
+                ✓ Doelen opslaan
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── LOG (always visible below tabs) ── */}
+        {log.length > 0 && (
+          <div style={{ marginTop: 20 }}>
+            <div style={{ fontSize: 11, color: "#45475a", fontFamily: "'Space Mono', monospace", marginBottom: 10, paddingLeft: 2 }}>
+              // vandaag — {log.length} item{log.length !== 1 ? "s" : ""}
+            </div>
+            {[...log].reverse().map(item => (
+              <LogCard key={item.id} item={item}
+                onRemove={() => setLog(prev => prev.filter(i => i.id !== item.id))} />
+            ))}
+          </div>
+        )}
+
+        {log.length === 0 && tab !== "settings" && (
+          <div style={{ textAlign: "center", color: "#313244", padding: "40px 20px", fontSize: 13 }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>🍽️</div>
+            Nog niets gelogd vandaag
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── SEARCH RESULT CARD ───────────────────────────────────────────────────────
+function SearchResult({ product, onAdd }) {
+  const [qty, setQty] = useState(100);
+  const n = product.nutriments;
+  const f = qty / 100;
+  const cal = Math.round((n["energy-kcal_100g"] || 0) * f);
+  const [added, setAdded] = useState(false);
+
+  const handleAdd = () => {
+    onAdd(product, qty);
+    setAdded(true);
+    setTimeout(() => setAdded(false), 1500);
+  };
+
+  return (
+    <div style={{
+      background: "#1e1e2e", border: "1px solid #313244", borderRadius: 12,
+      padding: "12px 14px", marginBottom: 10, animation: "fadeUp .25s ease"
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ color: "#cdd6f4", fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {product.product_name}
+          </div>
+          {product.brands && (
+            <div style={{ color: "#6c7086", fontSize: 11, marginTop: 2 }}>{product.brands}</div>
+          )}
+          <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+            {[
+              ["E", (n["proteins_100g"] || 0) * f, "#a6e3a1"],
+              ["K", (n["carbohydrates_100g"] || 0) * f, "#89b4fa"],
+              ["V", (n["fat_100g"] || 0) * f, "#fab387"]
+            ].map(([l, v, c]) => (
+              <span key={l} style={{
+                fontSize: 10, color: c, background: c + "20",
+                borderRadius: 4, padding: "1px 5px", fontFamily: "'Space Mono', monospace"
+              }}>{l} {Math.round(v)}g</span>
+            ))}
+          </div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ color: "#cba6f7", fontWeight: 700, fontSize: 16, fontFamily: "'Space Mono', monospace" }}>{cal}</div>
+          <div style={{ color: "#6c7086", fontSize: 9 }}>kcal</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
+          <span style={{ fontSize: 11, color: "#6c7086" }}>Hoeveelheid:</span>
+          <input type="number" value={qty} onChange={e => setQty(Number(e.target.value))} min={1}
+            style={{
+              width: 64, background: "#11111b", border: "1px solid #313244", borderRadius: 8,
+              color: "#cdd6f4", padding: "5px 8px", fontSize: 12,
+              fontFamily: "'Space Mono', monospace", textAlign: "center"
+            }} />
+          <span style={{ fontSize: 11, color: "#6c7086" }}>g</span>
+        </div>
+        <button onClick={handleAdd} style={{
+          background: added ? "#a6e3a1" : "#313244", color: added ? "#11111b" : "#cdd6f4",
+          border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12,
+          cursor: "pointer", fontWeight: 600, fontFamily: "'DM Sans', sans-serif", transition: "all .2s"
+        }}>
+          {added ? "✓" : "➕ Voeg toe"}
+        </button>
+      </div>
+    </div>
+  );
+}
