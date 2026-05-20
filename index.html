@@ -257,9 +257,9 @@ const timedFetch = (url, signal, ms = 8000) => Promise.race([
 ]);
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
 
-const searchALicious = async (q, signal) => {
+const searchALicious = async (q, signal, size = 50) => {
   const res = await timedFetch(
-    `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(q.trim())}&size=50&fields=product_name,brands,nutriments,serving_size`,
+    `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(q.trim())}&size=${size}&fields=product_name,brands,nutriments,serving_size`,
     signal
   );
   const data = await res.json();
@@ -267,7 +267,10 @@ const searchALicious = async (q, signal) => {
 };
 
 const offBarcode = async (barcode, signal) => {
-  const res = await timedFetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`, signal);
+  const res = await timedFetch(
+    `https://world.openfoodfacts.org/api/v3/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
+    signal
+  );
   const data = await res.json();
   if (data.status === 1 && data.product?.nutriments &&
       (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
@@ -579,12 +582,14 @@ function App() {
   const [kSaved,   setKSaved]   = useState(false);
   const [gSaved,   setGSaved]   = useState(false);
   const [usageTick, setUsageTick] = useState(0);
+  const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 50));
 
   const offInputRef = useRef();
   const aiInputRef  = useRef();
   const abortOFF    = useRef(null);
 
   useEffect(() => saveLog(log), [log]);
+  useEffect(() => { jset('ct_maxResults', maxResults); }, [maxResults]);
 
   const totals = log.reduce((a, i) => ({
     calorieën:    a.calorieën    + i.calorieën,
@@ -663,7 +668,7 @@ function App() {
         const { qty } = parsed[i];
 
         try {
-          const prods = await searchALicious(cleans[i], signal);
+          const prods = await searchALicious(cleans[i], signal, maxResults);
           if (prods.length) {
             // Alle resultaten tonen (geen slice)
             gevonden.push(...prods.map(product => ({ product, qty })));
@@ -988,6 +993,19 @@ function App() {
             style="margin-top:12px;background:var(--dim);color:var(--text);border:1px solid var(--border)">
             Lokale tellers resetten
           </button>
+        </div>
+        <div class="card">
+          <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:12px">Zoekresultaten</div>
+          <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.4">
+            Maximaal aantal producten dat wordt opgehaald uit de database.
+          </div>
+          <input type="number" value=${maxResults}
+            onInput=${e => setMaxResults(Math.max(1, Math.min(200, Number(e.target.value) || 50)))}
+            min="1" max="200" class="field mono"
+            style="text-align:center;font-size:16px;font-weight:600"/>
+          <div style="font-size:10px;color:var(--dim);margin-top:6px">
+            Tussen 1 en 200 (standaard 50)
+          </div>
         </div>
       </div>`}
     </div>
