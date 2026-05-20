@@ -129,6 +129,11 @@ Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+const MODEL_LIMITS = {
+  'gemini-2.5-flash':      { rpm: 360, tpm: 1_000_000, rpd: 1500 },
+  'gemini-2.0-flash':      { rpm: 10,  tpm: 1_000_000, rpd: 1500 },
+  'gemini-2.0-flash-lite': { rpm: 30,  tpm: 1_000_000, rpd: 1500 },
+};
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const MAX_RETRIES = 3;
 
@@ -136,6 +141,12 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
   const k = getKey();
   if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
   for (const model of MODELS) {
+    // ═══ CONTROLE LIMIETEN ═══
+    if (!rateLimitTracker.canMakeRequest(model)) {
+      // Ga naar volgende model als deze over limiet zit
+      continue;
+    }
+
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${k}`,
@@ -152,10 +163,15 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
         || data.error?.status === 'UNAVAILABLE';
       if (overloaded) { await sleep(1000 * Math.pow(2, attempt)); continue; }
       if (data.error) throw new Error(data.error.message);
+
+      // ═══ GEBRUIK LOGGEN ═══
+      const tokens = data.usageMetadata?.totalTokenCount ?? 0;
+      rateLimitTracker.logUsage(model, tokens);
+
       return data;
     }
   }
-  throw new Error('API is overbelast. Probeer het over een moment opnieuw.');
+  throw new Error('API is overbelast of alle modellen hebben hun limiet bereikt. Probeer het later opnieuw.');
 };
 
 const parseGeminiJson = (data) => {
@@ -166,6 +182,74 @@ const parseGeminiJson = (data) => {
   return JSON.parse(clean.slice(start, end + 1));
 };
 
+// ── Rate Limit Tracker ─────────────────────────────────────────────────────
+const USAGE_KEY = 'ct_usage';
+
+const getUsageLog = () => {
+  try { return JSON.parse(localStorage.getItem(USAGE_KEY)) || []; } catch { return []; }
+};
+const setUsageLog = (log) => localStorage.setItem(USAGE_KEY, JSON.stringify(log));
+
+const cleanLog = (log, maxAgeMs) => {
+  const now = Date.now();
+  return log.filter(e => (now - e.ts) < maxAgeMs);
+};
+
+const rateLimitTracker = {
+  canMakeRequest(model) {
+    const limits = MODEL_LIMITS[model];
+    if (!limits) return true; // onbekend model, geen beperking
+    const now = Date.now();
+    let log = getUsageLog();
+
+    // opruimen
+    log = cleanLog(log, 24 * 60 * 60 * 1000); // ouder dan 1 dag weg
+    const minuteLog = cleanLog(log, 60_000);  // laatste minuut
+    const dayLog = cleanLog(log, 24 * 60 * 60 * 1000);
+
+    const rpmUsed = minuteLog.filter(e => e.model === model).length;
+    const rpdUsed = dayLog.filter(e => e.model === model).length;
+    const tpmUsed = minuteLog
+      .filter(e => e.model === model)
+      .reduce((sum, e) => sum + (e.tokens || 0), 0);
+
+    if (rpmUsed >= limits.rpm) return false;
+    if (rpdUsed >= limits.rpd) return false;
+    if (tpmUsed >= limits.tpm) return false;
+    return true;
+  },
+
+  logUsage(model, tokens) {
+    const log = getUsageLog();
+    log.push({ model, tokens: tokens || 0, ts: Date.now() });
+    // bewaar alleen de laatste 24 uur om localStorage niet te laten exploderen
+    const cleaned = cleanLog(log, 24 * 60 * 60 * 1000);
+    setUsageLog(cleaned);
+  },
+
+  getStats() {
+    const now = Date.now();
+    const log = getUsageLog();
+    const minuteLog = cleanLog(log, 60_000);
+    const dayLog = cleanLog(log, 24 * 60 * 60 * 1000);
+
+    // Tel per model en overall
+    const stats = { rpm: {}, rpd: {}, tpm: {} };
+    for (const model of Object.keys(MODEL_LIMITS)) {
+      stats.rpm[model] = minuteLog.filter(e => e.model === model).length;
+      stats.rpd[model] = dayLog.filter(e => e.model === model).length;
+      stats.tpm[model] = minuteLog
+        .filter(e => e.model === model)
+        .reduce((sum, e) => sum + (e.tokens || 0), 0);
+    }
+    return stats;
+  },
+
+  reset() {
+    setUsageLog([]);
+  }
+};
+  
 // ── OFF ───────────────────────────────────────────────────────────────────────
 const timedFetch = (url, signal, ms = 8000) => Promise.race([
   fetch(url, { signal }),
@@ -494,6 +578,7 @@ function App() {
   const [gDraft,   setGDraft]   = useState(goals);
   const [kSaved,   setKSaved]   = useState(false);
   const [gSaved,   setGSaved]   = useState(false);
+  const [usageTick, setUsageTick] = useState(0);
 
   const offInputRef = useRef();
   const aiInputRef  = useRef();
@@ -825,7 +910,7 @@ function App() {
           <div style="display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:9px;margin-bottom:12px;background:${key?'#85b0981a':'#b872721a'};border:1px solid ${key?'#85b09840':'#b8727240'}">
             <span style="width:7px;height:7px;border-radius:50%;background:${key?'var(--p)':'var(--danger)'};flex-shrink:0"/>
             <span style="font-size:12px;color:${key?'var(--p)':'var(--danger)'}">
-              ${key ? 'API key opgeslagen — AI helpt met zoeken én schatten' : 'Geen API key — AI zoeken en schatten werken niet'}
+              ${key ? 'API key opgeslagen — AI kan voedingswaarden schatten' : 'Geen API key — AI-schatting werkt niet'}
             </span>
           </div>
           <input type="password" value=${key} onInput=${e=>setKeyState(e.target.value)}
@@ -849,6 +934,60 @@ function App() {
           <button class=${'btn'+(gSaved?' success':'')} onClick=${()=>{
             setGoals(gDraft); jset('ct_goals',gDraft); setGSaved(true); setTimeout(()=>setGSaved(false),2000);
           }}>${gSaved ? '✓ Opgeslagen' : 'Doelen opslaan'}</button>
+        </div>
+        <div class="card">
+          <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:12px">API-gebruik (Gemini)</div>
+          ${(() => {
+            const stats = rateLimitTracker.getStats();
+            const totalRPD = Object.values(stats.rpd).reduce((a,b)=>a+b,0);
+            const totalTPM = Object.values(stats.tpm).reduce((a,b)=>a+b,0);
+            const totalRPM = Object.values(stats.rpm).reduce((a,b)=>a+b,0);
+            const maxRPD = 1500, maxTPM = 1000000, maxRPM = 10;
+
+            const barStyle = (used, max) => {
+              const pct = Math.min(used / max * 100, 100);
+              const over = used >= max;
+              return `width:${pct}%;height:100%;background:${over?'var(--danger)':'var(--c)'};border-radius:6px;transition:width .3s`;
+            };
+
+            return html`
+              <div style="margin-bottom:16px">
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+                  <span>Verzoeken vandaag</span>
+                  <span class="mono">${totalRPD} / ${maxRPD}</span>
+                </div>
+                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
+                  <div style="${barStyle(totalRPD, maxRPD)}"></div>
+                </div>
+              </div>
+              <div style="margin-bottom:16px">
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+                  <span>Tokens deze minuut</span>
+                  <span class="mono">${totalTPM.toLocaleString()} / ${maxTPM.toLocaleString()}</span>
+                </div>
+                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
+                  <div style="${barStyle(totalTPM, maxTPM)}"></div>
+                </div>
+              </div>
+              <div style="margin-bottom:4px">
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+                  <span>Verzoeken deze minuut</span>
+                  <span class="mono">${totalRPM} / ${maxRPM}</span>
+                </div>
+                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
+                  <div style="${barStyle(totalRPM, maxRPM)}"></div>
+                </div>
+              </div>
+              <div style="font-size:10px;color:var(--dim);margin-top:10px;line-height:1.4">
+                Gebaseerd op lokale telling. Limieten kunnen afwijken.<br/>
+                Bij overschrijding schakelt de app over op een ander model.
+              </div>
+            `;
+          })()}
+          <button class="btn" onClick=${() => { rateLimitTracker.reset(); setUsageTick(t => t+1); }}
+            style="margin-top:12px;background:var(--dim);color:var(--text);border:1px solid var(--border)">
+            Lokale tellers resetten
+          </button>
         </div>
       </div>`}
     </div>
