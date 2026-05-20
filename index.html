@@ -127,14 +127,6 @@ const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSO
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 
-const VARIANTS_SYSTEM = `Je bent een zoekterm-specialist voor de Open Food Facts productendatabase.
-Corrigeer alleen spelfouten in de productnaam. Behoud altijd de merknaam.
-Verwijder hoeveelheden en eenheden. Geef maximaal 2 varianten per product.
-Eerste variant: gecorrigeerde exacte naam. Tweede: merk + kernproduct (nooit alleen producttype zonder merk).
-Ga NOOIT zo breed dat de merknaam verdwijnt. Voorbeeld: "zaanse hoeven volle yoghurt" geeft ["zaanse hoeve volle yoghurt","zaanse hoeve yoghurt"].
-ALLEEN valide JSON:
-{"producten":[{"varianten":["gecorrigeerde naam met merk","merk + kernwoord"]}]}`;
-
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -174,14 +166,6 @@ const parseGeminiJson = (data) => {
   return JSON.parse(clean.slice(start, end + 1));
 };
 
-const getSearchVariants = async (cleanTermen) => {
-  try {
-    const data = await callGemini(VARIANTS_SYSTEM, cleanTermen.join('\n'), 600);
-    const parsed = parseGeminiJson(data);
-    return parsed.producten || null;
-  } catch { return null; }
-};
-
 // ── OFF ───────────────────────────────────────────────────────────────────────
 const timedFetch = (url, signal, ms = 8000) => Promise.race([
   fetch(url, { signal }),
@@ -189,15 +173,13 @@ const timedFetch = (url, signal, ms = 8000) => Promise.race([
 ]);
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
 
-const offSearch = async (q, signal) => {
+const searchALicious = async (q, signal) => {
   const res = await timedFetch(
-    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q.trim())}&search_simple=1&action=process&json=1&page_size=50&fields=product_name,brands,nutriments,serving_size`,
+    `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(q.trim())}&size=50&fields=product_name,brands,nutriments,serving_size`,
     signal
   );
   const data = await res.json();
-  return (data.products || []).filter(p =>
-    p.product_name && (p.nutriments?.['energy-kcal_100g'] != null || p.nutriments?.['energy_100g'] != null)
-  );
+  return (data.hits || []).map(hit => hit._source).filter(p => p && p.product_name);
 };
 
 const offBarcode = async (barcode, signal) => {
@@ -208,15 +190,6 @@ const offBarcode = async (barcode, signal) => {
     return data.product;
   }
   return null;
-};
-
-const offSearchWithVariants = async (varianten, signal) => {
-  for (const v of varianten) {
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const prods = await offSearch(v, signal);
-    if (prods.length) return prods;
-  }
-  return [];
 };
 
 // ── Ring ──────────────────────────────────────────────────────────────────────
@@ -605,7 +578,7 @@ function App() {
         const { qty } = parsed[i];
 
         try {
-          const prods = await offSearch(cleans[i], signal);
+          const prods = await searchALicious(cleans[i], signal);
           if (prods.length) {
             // Alle resultaten tonen (geen slice)
             gevonden.push(...prods.map(product => ({ product, qty })));
@@ -682,15 +655,8 @@ function App() {
         setOffResults([{ product, qty: null }]);
         setShowModal(true);
       } else {
-        setOffPhaseMsg('Niet direct gevonden, zoeken op barcodenummer…');
-        const prods = await offSearch(code, signal);
-        if (prods.length) {
-          setOffResults(prods.slice(0, 4).map(p => ({ product: p, qty: null })));
-          setShowModal(true);
-        } else {
-          setOffError(`Barcode ${code} niet gevonden in de database.`);
-          setShowModal(true);
-        }
+        setOffError(`Barcode ${code} niet gevonden in de database.`);
+        setShowModal(true);
       }
     } catch (e) {
       if (e.name !== 'AbortError') {
@@ -773,10 +739,7 @@ function App() {
         <div class="card">
           <div class="section-label">● Database zoeken</div>
           <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
-            Voor specifieke merkproducten. ${key
-              ? html`<span style="color:var(--f)">✦ AI helpt met zoektermen.</span>`
-              : 'Voeg een Gemini API-key toe voor slimmere zoekopdrachten.'}
-            Meerdere producten scheiden met een komma.
+            Zoeken in Open Food Facts. Meerdere producten scheiden met een komma.
           </div>
           <div style="display:flex;gap:8px">
             <button onClick=${()=>setScanning(true)} title="Scan barcode"
@@ -802,7 +765,7 @@ function App() {
           </div>
           ${offLoading && html`
             <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0">
-              <div class="spinner" style="border-top-color:${offPhaseMsg.startsWith('AI')?'var(--f)':'var(--c)'}"/>
+              <div class="spinner" style="border-top-color:var(--c)"/>
               <span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span>
             </div>`}
         </div>
