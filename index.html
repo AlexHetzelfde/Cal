@@ -265,7 +265,9 @@ const searchALicious = async (q, signal, size = 50) => {
     signal
   );
   const data = await res.json();
-  return (data.hits || []).map(hit => hit._source).filter(p => p && p.product_name);
+  // Zoekresultaten zitten in data.hits.hits (Elasticsearch-formaat)
+  const rawHits = data.hits?.hits ?? data.hits ?? [];
+  return (Array.isArray(rawHits) ? rawHits : []).map(hit => hit._source || hit).filter(p => p && p.product_name);
 };
 
 const offBarcode = async (barcode, signal) => {
