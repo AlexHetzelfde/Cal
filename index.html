@@ -191,7 +191,7 @@ const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? 
 
 const offSearch = async (q, signal) => {
   const res = await timedFetch(
-    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q.trim())}&search_simple=1&action=process&json=1&page_size=6&fields=product_name,brands,nutriments,serving_size`,
+    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q.trim())}&search_simple=1&action=process&json=1&page_size=50&fields=product_name,brands,nutriments,serving_size`,
     signal
   );
   const data = await res.json();
@@ -595,13 +595,7 @@ function App() {
     // Label used in modal (clean terms without quantities)
     setModalLabel(cleans.join(', '));
 
-    let variantenPerTerm = null;
-    if (getKey()) {
-      setOffPhaseMsg('AI normaliseert zoektermen…');
-      variantenPerTerm = await getSearchVariants(cleans);
-    }
-
-    setOffPhaseMsg('Zoeken in database…');
+        setOffPhaseMsg('Zoeken in database…');
     try {
       const gevonden = [];
       const mislukt  = [];
@@ -610,13 +604,11 @@ function App() {
         if (signal.aborted) break;
         const { qty } = parsed[i];
 
-        let varianten = variantenPerTerm?.[i]?.varianten ?? [cleans[i]];
-        if (!varianten.includes(cleans[i])) varianten = [...varianten, cleans[i]];
-
         try {
-          const prods = await offSearchWithVariants(varianten, signal);
+          const prods = await offSearch(cleans[i], signal);
           if (prods.length) {
-            gevonden.push(...prods.slice(0, 4).map(product => ({ product, qty })));
+            // Alle resultaten tonen (geen slice)
+            gevonden.push(...prods.map(product => ({ product, qty })));
           } else {
             mislukt.push(termen[i]);
           }
