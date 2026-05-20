@@ -38,6 +38,7 @@
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
     @keyframes fadeUp  { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
     @keyframes pulse   { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+    @keyframes spin    { to { transform: rotate(360deg); } }
     @keyframes scanline { 0%,100% { top: 20%; } 50% { top: 75%; } }
     .fade-up { animation: fadeUp .2s ease; }
     .card { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
@@ -55,6 +56,7 @@
     a { color: var(--c); }
     .divider { border: none; border-top: 1px solid var(--border); margin: 4px 0 16px; }
     .source-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 2px 7px; border-radius: 20px; font-family: 'JetBrains Mono', monospace; margin-bottom: 10px; }
+    .spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
     .scanner-overlay { position: fixed; inset: 0; z-index: 100; background: #000; display: flex; flex-direction: column; }
     .scanner-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%); width: 240px; height: 160px; pointer-events: none; }
     .scanner-frame::before, .scanner-frame::after { content: ''; position: absolute; width: 30px; height: 30px; border-color: var(--p); border-style: solid; }
@@ -84,35 +86,72 @@ function loadLog() { const d = jget('ct_log', {}); return d.date === TODAY() ? d
 function saveLog(log) { jset('ct_log', { date: TODAY(), items: log }); }
 const DEFAULT_GOALS = { calorieën: 2800, eiwitten: 150, koolhydraten: 200, vetten: 65 };
 
-// ── AI prompt ─────────────────────────────────────────────────────────────────
+// ── Qty extractor ─────────────────────────────────────────────────────────────
+// Pakt getal + optionele eenheid van het begin van de invoer af.
+// "150g zaanse hoeve yoghurt" → { qty: 150, clean: "zaanse hoeve yoghurt" }
+const QTY_RE = /^(\d+(?:[.,]\d+)?)\s*(g|gr|gram|kg|ml|l|liter|stuks?|st|x)?\s*/i;
+function extractQty(raw) {
+  const m = raw.trim().match(QTY_RE);
+  if (!m) return { qty: 100, clean: raw.trim() };
+  const qty = parseFloat(m[1].replace(',', '.'));
+  const clean = raw.trim().slice(m[0].length).trim();
+  return { qty: qty || 100, clean: clean || raw.trim() };
+}
+
+// ── AI prompts ─────────────────────────────────────────────────────────────────
 const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSON:
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 
+// AI genereert 2-3 zoekterm-varianten per product, van specifiek naar algemeen.
+// Doel: OFF-treffers vergroten door spellingcorrectie en bredere fallbacks.
+const VARIANTS_SYSTEM = `Je bent een zoekterm-specialist voor de Open Food Facts productendatabase.
+Geef voor elke productnaam op een nieuwe regel 2-3 zoektermen, van specifiek naar algemeen.
+Corrigeer spelfouten. Verwijder hoeveelheden en eenheden.
+Geef ALLEEN valide JSON, niets anders:
+{"producten":[{"varianten":["exacte gecorrigeerde naam","kortere variant","alleen merk of hoofdtype"]}]}`;
+
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Retry-strategie bij overbelasting: tot MAX_RETRIES pogingen per model,
+// met exponential backoff (1s → 2s → 4s). Daarna volgend model, dan fout.
+const MAX_RETRIES = 3;
+
 const callGemini = async (systemText, userText, maxTokens = 1000) => {
   const k = getKey();
   if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
-  for (let i = 0; i < MODELS.length; i++) {
-    const model = MODELS[i];
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${k}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemText }] },
-          contents: [{ role: 'user', parts: [{ text: userText }] }],
-          generationConfig: { maxOutputTokens: maxTokens }
-        }) }
-    );
-    const data = await res.json();
-    if (data.error?.code === 429 || data.error?.status === 'RESOURCE_EXHAUSTED') {
-      if (i < MODELS.length - 1) { await new Promise(r => setTimeout(r, 1500)); continue; }
-      throw new Error('Te veel verzoeken. Even wachten en opnieuw proberen.');
+
+  for (const model of MODELS) {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${k}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemText }] },
+            contents: [{ role: 'user', parts: [{ text: userText }] }],
+            generationConfig: { maxOutputTokens: maxTokens }
+          }) }
+      );
+      const data = await res.json();
+
+      // Overbelast → wacht en probeer opnieuw
+      const overloaded = data.error?.code === 429
+        || data.error?.status === 'RESOURCE_EXHAUSTED'
+        || data.error?.status === 'UNAVAILABLE';
+      if (overloaded) {
+        const waitMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
+        await sleep(waitMs);
+        continue; // volgende poging, zelfde model
+      }
+
+      if (data.error) throw new Error(data.error.message);
+      return data; // succes
     }
-    if (data.error) throw new Error(data.error.message);
-    return data;
+    // Dit model is uitgeput, probeer het volgende
   }
+  throw new Error('API is overbelast. Probeer het over een moment opnieuw.');
 };
 const parseGeminiJson = (data) => {
   const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
@@ -122,15 +161,28 @@ const parseGeminiJson = (data) => {
   return JSON.parse(clean.slice(start, end + 1));
 };
 
+// Vraag AI om zoekterm-varianten. Geeft array terug: [{varianten:[...]}, ...]
+// Als het mislukt (geen key, API-fout) → null, dan zoeken we gewoon op de clean term.
+const getSearchVariants = async (cleanTermen) => {
+  try {
+    const data = await callGemini(VARIANTS_SYSTEM, cleanTermen.join('\n'), 600);
+    const parsed = parseGeminiJson(data);
+    return parsed.producten || null;
+  } catch {
+    return null;
+  }
+};
+
 // ── OFF ───────────────────────────────────────────────────────────────────────
 const timedFetch = (url, signal, ms = 8000) => Promise.race([
   fetch(url, { signal }),
   new Promise((_, rej) => setTimeout(() => rej(new Error('Verzoek duurde te lang.')), ms))
 ]);
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
-const offSearch = async (cleanQ, signal) => {
+
+const offSearch = async (q, signal) => {
   const res = await timedFetch(
-    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(cleanQ)}&search_simple=1&action=process&json=1&page_size=6&fields=product_name,brands,nutriments`,
+    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q.trim())}&search_simple=1&action=process&json=1&page_size=6&fields=product_name,brands,nutriments`,
     signal
   );
   const data = await res.json();
@@ -138,6 +190,7 @@ const offSearch = async (cleanQ, signal) => {
     p.product_name && (p.nutriments?.['energy-kcal_100g'] != null || p.nutriments?.['energy_100g'] != null)
   );
 };
+
 const offBarcode = async (barcode, signal) => {
   const res = await timedFetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`, signal);
   const data = await res.json();
@@ -146,6 +199,16 @@ const offBarcode = async (barcode, signal) => {
     return data.product;
   }
   return null;
+};
+
+// Probeer varianten één voor één in OFF; stop bij eerste treffer.
+const offSearchWithVariants = async (varianten, signal) => {
+  for (const v of varianten) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const prods = await offSearch(v, signal);
+    if (prods.length) return prods;
+  }
+  return [];
 };
 
 // ── Ring ──────────────────────────────────────────────────────────────────────
@@ -284,12 +347,13 @@ function App() {
   const [tab,    setTab]    = useState('add');
 
   // OFF state
-  const [offQuery,   setOffQuery]   = useState('');
-  const [offResults, setOffResults] = useState([]);
-  const [offLoading, setOffLoading] = useState(false);
-  const [offError,   setOffError]   = useState('');
+  const [offQuery,    setOffQuery]    = useState('');
+  const [offResults,  setOffResults]  = useState([]);
+  const [offLoading,  setOffLoading]  = useState(false);
+  const [offPhaseMsg, setOffPhaseMsg] = useState(''); // laadtekst
+  const [offError,    setOffError]    = useState('');
 
-  // AI state
+  // AI (beschrijving) state
   const [aiQuery,   setAiQuery]   = useState('');
   const [aiBericht, setAiBericht] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -334,23 +398,48 @@ function App() {
     setOffLoading(true);
     setOffError('');
     setOffResults([]);
+
+    // Splits op komma, haal hoeveelheid van elke term af
+    const termen  = q.split(',').map(s => s.trim()).filter(Boolean);
+    const parsed  = termen.map(extractQty); // [{qty, clean}, ...]
+    const cleans  = parsed.map(p => p.clean);
+
+    // Stap 1: Als er een API-key is, vraag AI om varianten per zoekterm
+    let variantenPerTerm = null; // null = geen AI, direct zoeken op clean term
+    if (getKey()) {
+      setOffPhaseMsg('AI normaliseert zoektermen…');
+      variantenPerTerm = await getSearchVariants(cleans);
+      // getSearchVariants vangt fouten intern op en geeft null terug bij mislukking
+    }
+
+    // Stap 2: Per term varianten in OFF proberen
+    setOffPhaseMsg('Zoeken in database…');
     try {
-      const termen   = q.split(',').map(s => s.trim()).filter(Boolean);
       const gevonden = [];
       const mislukt  = [];
-      for (const term of termen) {
+
+      for (let i = 0; i < cleans.length; i++) {
+        if (signal.aborted) break;
+        const { qty } = parsed[i];
+
+        // Varianten: door AI gegeven, of anders gewoon de clean zoekterm
+        let varianten = variantenPerTerm?.[i]?.varianten ?? [cleans[i]];
+        // Zorg dat clean term altijd als finale fallback aanwezig is
+        if (!varianten.includes(cleans[i])) varianten = [...varianten, cleans[i]];
+
         try {
-          const prods = await offSearch(term, signal);
+          const prods = await offSearchWithVariants(varianten, signal);
           if (prods.length) {
-            gevonden.push(...prods.slice(0, 3).map(product => ({ product, qty: 100 })));
+            gevonden.push(...prods.slice(0, 3).map(product => ({ product, qty })));
           } else {
-            mislukt.push(term);
+            mislukt.push(termen[i]);
           }
         } catch (e) {
           if (e.name === 'AbortError') throw e;
-          mislukt.push(term);
+          mislukt.push(termen[i]);
         }
       }
+
       setOffResults(gevonden);
       if (mislukt.length) {
         setOffError(`Niet gevonden: ${mislukt.map(t => `"${t}"`).join(', ')} — controleer de spelling.`);
@@ -360,6 +449,7 @@ function App() {
       setOffError('Fout: ' + (e.message || 'Probeer opnieuw.'));
     } finally {
       setOffLoading(false);
+      setOffPhaseMsg('');
       setTimeout(() => offInputRef.current?.focus(), 50);
     }
   };
@@ -393,6 +483,7 @@ function App() {
     abortOFF.current = controller;
     const { signal } = controller;
     setOffLoading(true);
+    setOffPhaseMsg('Barcode opzoeken…');
     setOffError('');
     setOffResults([]);
     setOffQuery(code);
@@ -402,7 +493,10 @@ function App() {
       else          { setOffError(`Barcode ${code} niet gevonden in de database.`); }
     } catch (e) {
       if (e.name !== 'AbortError') setOffError('Fout bij opzoeken van barcode.');
-    } finally { setOffLoading(false); }
+    } finally {
+      setOffLoading(false);
+      setOffPhaseMsg('');
+    }
   };
 
   const calPct = Math.min(totals.calorieën / goals.calorieën, 1);
@@ -465,7 +559,10 @@ function App() {
         <div class="card">
           <div class="section-label">● Database zoeken</div>
           <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
-            Voor specifieke merkproducten. Exacte naam vereist, meerdere producten scheiden met een komma.
+            Voor specifieke merkproducten. ${key
+              ? html`<span style="color:var(--f)">✦ AI helpt met zoektermen.</span>`
+              : 'Voeg een Gemini API-key toe voor slimmere zoekopdrachten.'}
+            Meerdere producten scheiden met een komma.
           </div>
           <div style="display:flex;gap:8px">
             <button onClick=${()=>setScanning(true)} title="Scan barcode"
@@ -482,7 +579,7 @@ function App() {
             <input ref=${offInputRef} value=${offQuery}
               onInput=${e=>{ setOffQuery(e.target.value); if(offResults.length||offError){ setOffResults([]); setOffError(''); } }}
               onKeyDown=${e=>e.key==='Enter'&&handleOFFSearch()}
-              placeholder="bijv. zaanse hoeve volle yoghurt"
+              placeholder="bijv. 150g zaanse hoeve volle yoghurt"
               class="field" style="flex:1"/>
             <button onClick=${handleOFFSearch} disabled=${offLoading||!offQuery.trim()}
               style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${offLoading||!offQuery.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
@@ -491,8 +588,8 @@ function App() {
           </div>
           ${offLoading && html`
             <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0">
-              <div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--c);border-radius:50%;animation:pulse .8s linear infinite;flex-shrink:0"/>
-              <span style="font-size:12px;color:var(--muted)">Zoeken in database…</span>
+              <div class="spinner" style="border-top-color:${offPhaseMsg.startsWith('AI')?'var(--f)':'var(--c)'}"/>
+              <span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span>
             </div>`}
           ${offError && html`<div style="color:var(--danger);font-size:12px;margin-top:8px;line-height:1.5">${offError}</div>`}
         </div>
@@ -507,7 +604,7 @@ function App() {
 
         <hr class="divider"/>
 
-        <!-- AI prompt -->
+        <!-- AI beschrijving -->
         <div class="card">
           <div class="section-label">✦ Beschrijven met AI</div>
           <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
@@ -517,7 +614,7 @@ function App() {
             <input ref=${aiInputRef} value=${aiQuery}
               onInput=${e=>{ setAiQuery(e.target.value); if(aiBericht||aiError){ setAiBericht(''); setAiError(''); } }}
               onKeyDown=${e=>e.key==='Enter'&&handleAISearch()}
-              placeholder="bijv. 300g groente soep, 2 eieren…"
+              placeholder="bijv. 300g groentesoep, 2 eieren…"
               class="field" style="flex:1"/>
             <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()}
               style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${aiLoading||!aiQuery.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
@@ -526,7 +623,7 @@ function App() {
           </div>
           ${aiLoading && html`
             <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0">
-              <div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--f);border-radius:50%;animation:pulse .8s linear infinite;flex-shrink:0"/>
+              <div class="spinner" style="border-top-color:var(--f)"/>
               <span style="font-size:12px;color:var(--muted)">AI schat voedingswaarden…</span>
             </div>`}
           ${aiError && html`<div style="color:var(--danger);font-size:12px;margin-top:8px">${aiError}</div>`}
@@ -560,7 +657,7 @@ function App() {
           <div style="display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:9px;margin-bottom:12px;background:${key?'#85b0981a':'#b872721a'};border:1px solid ${key?'#85b09840':'#b8727240'}">
             <span style="width:7px;height:7px;border-radius:50%;background:${key?'var(--p)':'var(--danger)'};flex-shrink:0"/>
             <span style="font-size:12px;color:${key?'var(--p)':'var(--danger)'}">
-              ${key ? 'API key opgeslagen' : 'Geen API key — AI schatting werkt niet'}
+              ${key ? 'API key opgeslagen — AI helpt met zoeken én schatten' : 'Geen API key — AI zoeken en schatten werken niet'}
             </span>
           </div>
           <input type="password" value=${key} onInput=${e=>setKeyState(e.target.value)}
