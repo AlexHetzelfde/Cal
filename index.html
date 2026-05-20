@@ -36,110 +36,34 @@
     textarea:focus, input:focus { outline: none; }
     ::-webkit-scrollbar { width: 3px; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-    @keyframes fadeUp { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
-    @keyframes pulse  { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+    @keyframes fadeUp  { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+    @keyframes pulse   { 0%,100% { opacity:1; } 50% { opacity:.4; } }
     @keyframes scanline { 0%,100% { top: 20%; } 50% { top: 75%; } }
     .fade-up { animation: fadeUp .2s ease; }
-
-    .card {
-      background: var(--s1);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 14px;
-      margin-bottom: 12px;
-    }
-    .field {
-      width: 100%;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      color: var(--text);
-      padding: 10px 12px;
-      font-size: 13px;
-      transition: border-color .2s;
-    }
+    .card { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+    .field { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; color: var(--text); padding: 10px 12px; font-size: 13px; transition: border-color .2s; }
     .field:focus { border-color: var(--text); }
-    .btn {
-      width: 100%;
-      background: var(--text);
-      color: var(--bg);
-      border: none;
-      border-radius: 10px;
-      padding: 11px;
-      font-weight: 700;
-      font-size: 13px;
-      cursor: pointer;
-      transition: opacity .15s;
-      letter-spacing: .01em;
-    }
+    .btn { width: 100%; background: var(--text); color: var(--bg); border: none; border-radius: 10px; padding: 11px; font-weight: 700; font-size: 13px; cursor: pointer; transition: opacity .15s; letter-spacing: .01em; }
     .btn:hover:not(:disabled) { opacity: .8; }
     .btn:disabled { opacity: .25; cursor: default; }
     .btn.success { background: var(--p); color: var(--bg); }
-    .tab {
-      flex: 1;
-      background: none;
-      border: none;
-      border-bottom: 2px solid transparent;
-      padding: 11px 4px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      color: var(--muted);
-      transition: all .15s;
-      letter-spacing: .01em;
-    }
+    .tab { flex: 1; background: none; border: none; border-bottom: 2px solid transparent; padding: 11px 4px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--muted); transition: all .15s; letter-spacing: .01em; }
     .tab.on { color: var(--text); border-bottom-color: var(--text); }
-    .logcard {
-      background: var(--s1);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 11px 13px;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      animation: fadeUp .2s ease;
-    }
-    .tag {
-      font-size: 10px;
-      border-radius: 5px;
-      padding: 2px 6px;
-      font-family: 'JetBrains Mono', monospace;
-    }
+    .logcard { background: var(--s1); border: 1px solid var(--border); border-radius: 12px; padding: 11px 13px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; animation: fadeUp .2s ease; }
+    .tag { font-size: 10px; border-radius: 5px; padding: 2px 6px; font-family: 'JetBrains Mono', monospace; }
+    .section-label { font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 8px; }
     a { color: var(--c); }
-    .scanner-overlay {
-      position: fixed; inset: 0; z-index: 100;
-      background: #000; display: flex; flex-direction: column;
-    }
-    .scanner-frame {
-      position: absolute; top: 50%; left: 50%;
-      transform: translate(-50%, -60%);
-      width: 240px; height: 160px; pointer-events: none;
-    }
-    .scanner-frame::before, .scanner-frame::after {
-      content: ''; position: absolute;
-      width: 30px; height: 30px;
-      border-color: var(--p); border-style: solid;
-    }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 4px 0 16px; }
+    .source-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 2px 7px; border-radius: 20px; font-family: 'JetBrains Mono', monospace; margin-bottom: 10px; }
+    .scanner-overlay { position: fixed; inset: 0; z-index: 100; background: #000; display: flex; flex-direction: column; }
+    .scanner-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%); width: 240px; height: 160px; pointer-events: none; }
+    .scanner-frame::before, .scanner-frame::after { content: ''; position: absolute; width: 30px; height: 30px; border-color: var(--p); border-style: solid; }
     .scanner-frame::before { top:0;left:0;border-width:3px 0 0 3px;border-radius:4px 0 0 0; }
     .scanner-frame::after  { bottom:0;right:0;border-width:0 3px 3px 0;border-radius:0 0 4px 0; }
-    .scanner-frame-tr, .scanner-frame-bl {
-      position: absolute; width: 30px; height: 30px;
-      border-color: var(--p); border-style: solid;
-    }
+    .scanner-frame-tr, .scanner-frame-bl { position: absolute; width: 30px; height: 30px; border-color: var(--p); border-style: solid; }
     .scanner-frame-tr { top:0;right:0;border-width:3px 3px 0 0;border-radius:0 4px 0 0; }
     .scanner-frame-bl { bottom:0;left:0;border-width:0 0 3px 3px;border-radius:0 0 0 4px; }
-    .scanner-line {
-      position: absolute; left: 4px; right: 4px; height: 2px;
-      background: linear-gradient(90deg, transparent, var(--p), transparent);
-      animation: scanline 2s ease-in-out infinite;
-    }
-    .source-badge {
-      display: inline-flex; align-items: center; gap: 4px;
-      font-size: 10px; padding: 2px 7px; border-radius: 20px;
-      font-family: 'JetBrains Mono', monospace; margin-bottom: 10px;
-    }
+    .scanner-line { position: absolute; left: 4px; right: 4px; height: 2px; background: linear-gradient(90deg, transparent, var(--p), transparent); animation: scanline 2s ease-in-out infinite; }
   </style>
 </head>
 <body>
@@ -150,7 +74,7 @@ import { useState, useEffect, useRef } from 'https://esm.sh/preact@10.24.3/hooks
 import htm from 'https://esm.sh/htm@3.1.1';
 const html = htm.bind(h);
 
-// ── Storage ──────────────────────────────────────────────────────────────────
+// ── Storage ───────────────────────────────────────────────────────────────────
 const TODAY = () => new Date().toISOString().slice(0, 10);
 const jget = (k, fb) => { try { const v = localStorage.getItem(k); return v !== null ? JSON.parse(v) : fb; } catch { return fb; } };
 const jset = (k, v) => localStorage.setItem(k, JSON.stringify(v));
@@ -160,36 +84,16 @@ function loadLog() { const d = jget('ct_log', {}); return d.date === TODAY() ? d
 function saveLog(log) { jset('ct_log', { date: TODAY(), items: log }); }
 const DEFAULT_GOALS = { calorieën: 2800, eiwitten: 150, koolhydraten: 200, vetten: 65 };
 
-// ── Rule-based split ──────────────────────────────────────────────────────────
-// Splits op komma, "en" vóór een getal, of een nieuw getal.
-// "150g yoghurt en 150g kwark" → twee producten  ✓
-// "150g yoghurt, 100g kwark"   → twee producten  ✓
-// "mac en cheese"              → één product     ✓
-const ruleBasedSplit = (q) => {
-  return q
-    .split(/,|\s+en\s+(?=\d)|\s+(?=\d)/i)
-    .map(part => part.trim())
-    .filter(Boolean)
-    .map(part => {
-      const match = part.match(/^(\d+(?:[.,]\d+)?)\s*(?:gram|g|ml|liter|l|kg|stuks?|x)?\s*/i);
-      const qty   = match ? parseFloat(match[1].replace(',', '.')) : 100;
-      const clean = match ? part.slice(match[0].length).trim() : part.trim();
-      return { qty, clean };
-    });
-};
-
-// ── Prompt ───────────────────────────────────────────────────────────────────
+// ── AI prompt ─────────────────────────────────────────────────────────────────
 const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSON:
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 
-// ── Gemini helper met retry + model fallback ──────────────────────────────────
+// ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash'];
-
 const callGemini = async (systemText, userText, maxTokens = 1000) => {
   const k = getKey();
   if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
-
   for (let i = 0; i < MODELS.length; i++) {
     const model = MODELS[i];
     const res = await fetch(
@@ -203,17 +107,13 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
     );
     const data = await res.json();
     if (data.error?.code === 429 || data.error?.status === 'RESOURCE_EXHAUSTED') {
-      if (i < MODELS.length - 1) {
-        await new Promise(r => setTimeout(r, 1500));
-        continue;
-      }
+      if (i < MODELS.length - 1) { await new Promise(r => setTimeout(r, 1500)); continue; }
       throw new Error('Te veel verzoeken. Even wachten en opnieuw proberen.');
     }
     if (data.error) throw new Error(data.error.message);
     return data;
   }
 };
-
 const parseGeminiJson = (data) => {
   const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
   const clean = text.replace(/```json|```/g, '').trim();
@@ -222,23 +122,41 @@ const parseGeminiJson = (data) => {
   return JSON.parse(clean.slice(start, end + 1));
 };
 
-// ── OFF fetch met timeout ─────────────────────────────────────────────────────
+// ── OFF ───────────────────────────────────────────────────────────────────────
 const timedFetch = (url, signal, ms = 8000) => Promise.race([
   fetch(url, { signal }),
-  new Promise((_, rej) => setTimeout(() => rej(new Error('Verzoek duurde te lang, probeer opnieuw.')), ms))
+  new Promise((_, rej) => setTimeout(() => rej(new Error('Verzoek duurde te lang.')), ms))
 ]);
+const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
+const offSearch = async (cleanQ, signal) => {
+  const res = await timedFetch(
+    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(cleanQ)}&search_simple=1&action=process&json=1&page_size=6&fields=product_name,brands,nutriments`,
+    signal
+  );
+  const data = await res.json();
+  return (data.products || []).filter(p =>
+    p.product_name && (p.nutriments?.['energy-kcal_100g'] != null || p.nutriments?.['energy_100g'] != null)
+  );
+};
+const offBarcode = async (barcode, signal) => {
+  const res = await timedFetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`, signal);
+  const data = await res.json();
+  if (data.status === 1 && data.product?.nutriments &&
+      (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
+    return data.product;
+  }
+  return null;
+};
 
-// ── Ring ─────────────────────────────────────────────────────────────────────
+// ── Ring ──────────────────────────────────────────────────────────────────────
 function Ring({ value, goal, label, color }) {
   const r = 26, c = 2 * Math.PI * r, pct = Math.min(value / goal, 1), over = value > goal;
   return html`
     <div style="text-align:center">
       <svg width="68" height="68">
         <circle cx="34" cy="34" r=${r} fill="none" stroke="#1c1c1c" stroke-width="5"/>
-        <circle cx="34" cy="34" r=${r} fill="none"
-          stroke=${over ? 'var(--danger)' : color} stroke-width="5"
-          stroke-dasharray="${c * pct} ${c}" stroke-linecap="round"
-          transform="rotate(-90 34 34)"
+        <circle cx="34" cy="34" r=${r} fill="none" stroke=${over?'var(--danger)':color} stroke-width="5"
+          stroke-dasharray="${c*pct} ${c}" stroke-linecap="round" transform="rotate(-90 34 34)"
           style="transition:stroke-dasharray .5s ease"/>
         <text x="34" y="31" text-anchor="middle" fill="#eeeeec" font-size="11" font-weight="600" font-family="'JetBrains Mono',monospace">${Math.round(value)}</text>
         <text x="34" y="44" text-anchor="middle" fill="#555" font-size="9" font-family="'JetBrains Mono',monospace">/${goal}</text>
@@ -275,8 +193,7 @@ function SearchResult({ product, onAdd, initialQty }) {
   const [qty, setQty] = useState(initialQty || 100);
   const [done, setDone] = useState(false);
   const n = product.nutriments, f = qty / 100;
-  const kcal100 = n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
-  const cal = Math.round(kcal100 * f);
+  const cal = Math.round(getKcal100g(n) * f);
   const add = () => { onAdd(product, qty); setDone(true); setTimeout(() => setDone(false), 1600); };
   return html`
     <div class="card fade-up">
@@ -312,12 +229,10 @@ function BarcodeScanner({ onDetected, onClose }) {
   const readerRef = useRef(null);
   const [err, setErr] = useState('');
   const [found, setFound] = useState(null);
-
   const stopStream = () => {
     try { if (videoRef.current?.srcObject) { videoRef.current.srcObject.getTracks().forEach(t => t.stop()); videoRef.current.srcObject = null; } } catch {}
     try { readerRef.current?.reset(); } catch {}
   };
-
   useEffect(() => {
     let active = true;
     (async () => {
@@ -337,7 +252,6 @@ function BarcodeScanner({ onDetected, onClose }) {
     })();
     return () => { active = false; stopStream(); };
   }, []);
-
   return html`
     <div class="scanner-overlay">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:16px;z-index:2">
@@ -364,24 +278,31 @@ function BarcodeScanner({ onDetected, onClose }) {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
-  const [log,      setLog]      = useState(loadLog);
-  const [goals,    setGoals]    = useState(() => jget('ct_goals', DEFAULT_GOALS));
-  const [key,      setKeyState] = useState(getKey);
-  const [tab,      setTab]      = useState('add');
-  const [query,    setQuery]    = useState('');
-  const [loading,  setLoading]  = useState(false);
-  const [loadMsg,  setLoadMsg]  = useState('');
-  const [results,  setResults]  = useState([]);
-  const [bericht,  setBericht]  = useState('');
-  const [error,    setError]    = useState('');
-  const [source,   setSource]   = useState('');
+  const [log,    setLog]    = useState(loadLog);
+  const [goals,  setGoals]  = useState(() => jget('ct_goals', DEFAULT_GOALS));
+  const [key,    setKeyState] = useState(getKey);
+  const [tab,    setTab]    = useState('add');
+
+  // OFF state
+  const [offQuery,   setOffQuery]   = useState('');
+  const [offResults, setOffResults] = useState([]);
+  const [offLoading, setOffLoading] = useState(false);
+  const [offError,   setOffError]   = useState('');
+
+  // AI state
+  const [aiQuery,   setAiQuery]   = useState('');
+  const [aiBericht, setAiBericht] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError,   setAiError]   = useState('');
+
   const [scanning, setScanning] = useState(false);
   const [gDraft,   setGDraft]   = useState(goals);
   const [kSaved,   setKSaved]   = useState(false);
   const [gSaved,   setGSaved]   = useState(false);
 
-  const inputRef = useRef();
-  const abortRef = useRef(null);
+  const offInputRef = useRef();
+  const aiInputRef  = useRef();
+  const abortOFF    = useRef(null);
 
   useEffect(() => saveLog(log), [log]);
 
@@ -394,163 +315,98 @@ function App() {
 
   const addItems = items => setLog(p => [...p, ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
 
-  const getKcal100g = (n) =>
-    n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
-
   const addOFF = (product, qty) => {
     const n = product.nutriments, f = qty / 100;
-    addItems([{
-      naam: product.product_name,
-      hoeveelheid: `${qty}g`,
-      calorieën:    getKcal100g(n) * f,
-      eiwitten:     (n['proteins_100g']      || 0) * f,
-      koolhydraten: (n['carbohydrates_100g'] || 0) * f,
-      vetten:       (n['fat_100g']           || 0) * f,
-    }]);
+    addItems([{ naam: product.product_name, hoeveelheid: `${qty}g`,
+      calorieën: getKcal100g(n)*f, eiwitten: (n['proteins_100g']||0)*f,
+      koolhydraten: (n['carbohydrates_100g']||0)*f, vetten: (n['fat_100g']||0)*f }]);
   };
 
-  // ── OFF: zoek één product ─────────────────────────────────────────────────
-  const offSearch = async (cleanQ, signal) => {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(cleanQ)}&search_simple=1&action=process&json=1&page_size=8&fields=product_name,brands,nutriments`,
-      signal
-    );
-    const data = await res.json();
-    return (data.products || []).filter(p =>
-      p.product_name &&
-      (p.nutriments?.['energy-kcal_100g'] != null || p.nutriments?.['energy_100g'] != null)
-    );
-  };
-
-  // ── OFF: barcode lookup ───────────────────────────────────────────────────
-  const offBarcode = async (barcode, signal) => {
-    const res = await timedFetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`, signal);
-    const data = await res.json();
-    if (data.status === 1 && data.product?.nutriments &&
-        (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
-      return data.product;
-    }
-    return null;
-  };
-
-  // ── AI: schat voedingswaarden voor producten niet gevonden in OFF ──────────
-  const aiNutrition = async (q) => {
-    setLoadMsg('AI schat voedingswaarden...');
-    const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
-    const parsed = parseGeminiJson(data);
-    addItems(parsed.items || []);
-    setBericht(parsed.bericht || '');
-  };
-
-  // ── Hoofd zoeklogica ──────────────────────────────────────────────────────
-  // ── Hoofd zoeklogica ──────────────────────────────────────────────────────
-  const handleSearch = async () => {
-    const q = query.trim();
-    if (!q || loading) return;
-
-    if (abortRef.current) abortRef.current.abort();
+  // ── OFF zoeken ────────────────────────────────────────────────────────────
+  const handleOFFSearch = async () => {
+    const q = offQuery.trim();
+    if (!q || offLoading) return;
+    if (abortOFF.current) abortOFF.current.abort();
     const controller = new AbortController();
-    abortRef.current = controller;
+    abortOFF.current = controller;
     const { signal } = controller;
 
-    setLoading(true);
-    setError('');
-    setResults([]);
-    setBericht('');
-    setSource('');
-
+    setOffLoading(true);
+    setOffError('');
+    setOffResults([]);
     try {
-      // ── Stap 1: deterministisch splitsen op komma of nieuw getal
-      setLoadMsg('Producten herkennen...');
-      const producten = ruleBasedSplit(q);
-
-      // ── Stap 2: elk product apart proberen in OFF
-      setLoadMsg('Zoeken in database...');
-      const gevonden     = []; // OFF kaartjes om te tonen
-      const nietGevonden = []; // naar AI sturen
-
-      for (const { qty, clean } of producten) {
+      const termen   = q.split(',').map(s => s.trim()).filter(Boolean);
+      const gevonden = [];
+      const mislukt  = [];
+      for (const term of termen) {
         try {
-          const prods = await offSearch(clean, signal);
+          const prods = await offSearch(term, signal);
           if (prods.length) {
-            gevonden.push(...prods.slice(0, 3).map(product => ({ product, qty })));
+            gevonden.push(...prods.slice(0, 3).map(product => ({ product, qty: 100 })));
           } else {
-            nietGevonden.push({ qty, clean });
+            mislukt.push(term);
           }
         } catch (e) {
-          if (e.name === 'AbortError') throw e; // abort altijd doorgooien
-          nietGevonden.push({ qty, clean });    // fetch fout → AI fallback
+          if (e.name === 'AbortError') throw e;
+          mislukt.push(term);
         }
       }
-
-      // ── Stap 3: source bepalen en resultaten tonen
-      const heeftOFF = gevonden.length > 0;
-      const heeftAI  = nietGevonden.length > 0;
-
-      if (heeftOFF) setResults(gevonden);
-
-      if (heeftAI) {
-        const aiQuery = nietGevonden.map(({ qty, clean }) => `${qty}g ${clean}`).join(', ');
-        await aiNutrition(aiQuery);
+      setOffResults(gevonden);
+      if (mislukt.length) {
+        setOffError(`Niet gevonden: ${mislukt.map(t => `"${t}"`).join(', ')} — controleer de spelling.`);
       }
-
-      if      (heeftOFF && heeftAI) setSource('mix');
-      else if (heeftOFF)            setSource('off');
-      else                          setSource('ai');
-
-      // Query alleen clearen als er geen OFF kaartjes zijn
-      if (!heeftOFF) setQuery('');
-
     } catch (e) {
       if (e.name === 'AbortError') return;
-      setError('Fout: ' + (e.message || 'Probeer opnieuw.'));
+      setOffError('Fout: ' + (e.message || 'Probeer opnieuw.'));
     } finally {
-      setLoading(false);
-      setLoadMsg('');
-      setTimeout(() => inputRef.current?.focus(), 50);
+      setOffLoading(false);
+      setTimeout(() => offInputRef.current?.focus(), 50);
+    }
+  };
+
+  // ── AI beschrijven ────────────────────────────────────────────────────────
+  const handleAISearch = async () => {
+    const q = aiQuery.trim();
+    if (!q || aiLoading) return;
+    setAiLoading(true);
+    setAiError('');
+    setAiBericht('');
+    try {
+      const data   = await callGemini(NUTRITION_SYSTEM, q, 2048);
+      const parsed = parseGeminiJson(data);
+      addItems(parsed.items || []);
+      setAiBericht(parsed.bericht || '');
+      setAiQuery('');
+    } catch (e) {
+      setAiError('Fout: ' + (e.message || 'Probeer opnieuw.'));
+    } finally {
+      setAiLoading(false);
+      setTimeout(() => aiInputRef.current?.focus(), 50);
     }
   };
 
   // ── Barcode ───────────────────────────────────────────────────────────────
   const handleBarcode = async (code) => {
     setScanning(false);
-    setQuery(code);
-    if (abortRef.current) abortRef.current.abort();
+    if (abortOFF.current) abortOFF.current.abort();
     const controller = new AbortController();
-    abortRef.current = controller;
+    abortOFF.current = controller;
     const { signal } = controller;
-
-    setLoading(true);
-    setError('');
-    setResults([]);
-    setBericht('');
-    setSource('');
+    setOffLoading(true);
+    setOffError('');
+    setOffResults([]);
+    setOffQuery(code);
     try {
       const product = await offBarcode(code, signal);
-      if (product) {
-        setResults([{ product, qty: 100 }]);
-        setSource('barcode');
-      } else {
-        setError(`Barcode ${code} niet gevonden in de database.`);
-      }
+      if (product) { setOffResults([{ product, qty: 100 }]); }
+      else          { setOffError(`Barcode ${code} niet gevonden in de database.`); }
     } catch (e) {
-      if (e.name !== 'AbortError') setError('Fout bij opzoeken van barcode.');
-    } finally {
-      setLoading(false);
-      setLoadMsg('');
-    }
+      if (e.name !== 'AbortError') setOffError('Fout bij opzoeken van barcode.');
+    } finally { setOffLoading(false); }
   };
 
   const calPct = Math.min(totals.calorieën / goals.calorieën, 1);
   const calOver = totals.calorieën > goals.calorieën;
-
-  const sourceBadge = (s) => {
-    if (s === 'off')     return html`<span class="source-badge" style="background:#7fa4b81a;color:var(--c)">● Open Food Facts</span>`;
-    if (s === 'barcode') return html`<span class="source-badge" style="background:#85b0981a;color:var(--p)">● Barcode scan</span>`;
-    if (s === 'ai')      return html`<span class="source-badge" style="background:#b89e721a;color:var(--f)">✦ AI schatting</span>`;
-    if (s === 'mix')     return html`<span class="source-badge" style="background:#ffffff0a;color:var(--muted)">● OFF  +  ✦ AI</span>`;
-    return null;
-  };
 
   return html`<div>
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
@@ -565,7 +421,7 @@ function App() {
               ${new Date().toLocaleDateString('nl-NL',{weekday:'long',day:'numeric',month:'long'})}
             </div>
           </div>
-          <button onClick=${()=>{setLog([]);setBericht('');setResults([]);setSource('');}}
+          <button onClick=${()=>{setLog([]);setAiBericht('');setOffResults([]);setOffError('');setAiError('');}}
             style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 11px;font-size:11px;cursor:pointer;transition:all .15s"
             onMouseOver=${e=>{e.currentTarget.style.color='var(--danger)';e.currentTarget.style.borderColor='var(--danger)'}}
             onMouseOut=${e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.borderColor='var(--border)'}}>
@@ -603,9 +459,14 @@ function App() {
 
     <!-- Content -->
     <div style="max-width:480px;margin:0 auto;padding:16px 14px 80px">
-
       ${tab==='add' && html`<div>
+
+        <!-- OFF zoekbalk -->
         <div class="card">
+          <div class="section-label">● Database zoeken</div>
+          <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
+            Voor specifieke merkproducten. Exacte naam vereist, meerdere producten scheiden met een komma.
+          </div>
           <div style="display:flex;gap:8px">
             <button onClick=${()=>setScanning(true)} title="Scan barcode"
               style="flex-shrink:0;width:42px;height:42px;background:var(--s2);border:1px solid var(--border);border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s;color:var(--muted)"
@@ -618,52 +479,74 @@ function App() {
                 <line x1="12" y1="7" x2="12" y2="17"/>
               </svg>
             </button>
-            <input ref=${inputRef} value=${query}
-              onInput=${e=>{ setQuery(e.target.value); if(results.length||bericht||error){ setResults([]); setBericht(''); setError(''); setSource(''); } }}
-              onKeyDown=${e=>e.key==='Enter'&&handleSearch()}
-              placeholder="Zoek product, beschrijf maaltijd of scan barcode…"
+            <input ref=${offInputRef} value=${offQuery}
+              onInput=${e=>{ setOffQuery(e.target.value); if(offResults.length||offError){ setOffResults([]); setOffError(''); } }}
+              onKeyDown=${e=>e.key==='Enter'&&handleOFFSearch()}
+              placeholder="bijv. zaanse hoeve volle yoghurt"
               class="field" style="flex:1"/>
-            <button onClick=${handleSearch} disabled=${loading||!query.trim()}
-              style="flex-shrink:0;background:var(--text);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${loading||!query.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
-              ${loading ? '...' : 'Zoek'}
+            <button onClick=${handleOFFSearch} disabled=${offLoading||!offQuery.trim()}
+              style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${offLoading||!offQuery.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
+              ${offLoading ? '...' : 'Zoek'}
             </button>
           </div>
-
-          ${loading && html`
-            <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 0">
-              <div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--text);border-radius:50%;animation:pulse .8s linear infinite;flex-shrink:0"/>
-              <span style="font-size:12px;color:var(--muted)">${loadMsg}</span>
+          ${offLoading && html`
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0">
+              <div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--c);border-radius:50%;animation:pulse .8s linear infinite;flex-shrink:0"/>
+              <span style="font-size:12px;color:var(--muted)">Zoeken in database…</span>
             </div>`}
-
-          ${error && html`<div style="color:var(--danger);font-size:12px;margin-top:8px">${error}</div>`}
+          ${offError && html`<div style="color:var(--danger);font-size:12px;margin-top:8px;line-height:1.5">${offError}</div>`}
         </div>
 
-        ${!loading && !results.length && !bericht && !error && html`
-          <div style="font-size:11px;color:var(--dim);line-height:1.7;margin-bottom:12px;padding:0 2px">
-            Typ een product of meerdere gescheiden door komma of nieuw getal — bij geen resultaat automatisch AI schatting
-          </div>`}
+        ${offResults.length > 0 && html`
+          <div style="margin-bottom:4px">
+            <span class="source-badge" style="background:#7fa4b81a;color:var(--c)">● Open Food Facts</span>
+          </div>
+          ${offResults.map(({ product, qty }) => html`
+            <${SearchResult} product=${product} onAdd=${addOFF} initialQty=${qty}/>`)}
+        `}
 
-        ${(results.length > 0 || bericht) && html`
-          <div style="margin-bottom:4px">${sourceBadge(source)}</div>`}
+        <hr class="divider"/>
 
-        ${results.map(({ product, qty }) => html`
-          <${SearchResult} product=${product} onAdd=${addOFF} initialQty=${qty}/>`)}
+        <!-- AI prompt -->
+        <div class="card">
+          <div class="section-label">✦ Beschrijven met AI</div>
+          <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
+            Voor maaltijden en generieke producten. AI schat de voedingswaarden.
+          </div>
+          <div style="display:flex;gap:8px">
+            <input ref=${aiInputRef} value=${aiQuery}
+              onInput=${e=>{ setAiQuery(e.target.value); if(aiBericht||aiError){ setAiBericht(''); setAiError(''); } }}
+              onKeyDown=${e=>e.key==='Enter'&&handleAISearch()}
+              placeholder="bijv. 300g groente soep, 2 eieren…"
+              class="field" style="flex:1"/>
+            <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()}
+              style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${aiLoading||!aiQuery.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
+              ${aiLoading ? '...' : 'Schat'}
+            </button>
+          </div>
+          ${aiLoading && html`
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0">
+              <div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--f);border-radius:50%;animation:pulse .8s linear infinite;flex-shrink:0"/>
+              <span style="font-size:12px;color:var(--muted)">AI schat voedingswaarden…</span>
+            </div>`}
+          ${aiError && html`<div style="color:var(--danger);font-size:12px;margin-top:8px">${aiError}</div>`}
+          ${aiBericht && html`
+            <div class="fade-up" style="margin-top:10px;padding:10px;background:var(--s2);border-radius:10px;border:1px solid var(--dim);font-size:12px;color:#888;line-height:1.6">
+              <span style="color:var(--f);margin-right:5px">✦</span>${aiBericht}
+            </div>`}
+        </div>
 
-        ${bericht && html`
-          <div class="card fade-up" style="border-color:var(--dim);font-size:12px;color:#888;line-height:1.6;margin-bottom:0">
-            ${bericht}
-          </div>`}
+        <hr class="divider"/>
 
+        <!-- Log -->
         ${log.length > 0 && html`
-          <div style="margin-top:20px">
+          <div>
             <div style="font-size:11px;color:var(--dim);margin-bottom:10px">
               Vandaag — ${log.length} item${log.length!==1?'s':''}
             </div>
             ${[...log].reverse().map(item => html`
-              <${LogCard} key=${item.id} item=${item}
-                onRemove=${()=>setLog(p=>p.filter(i=>i.id!==item.id))}/>`)}
+              <${LogCard} key=${item.id} item=${item} onRemove=${()=>setLog(p=>p.filter(i=>i.id!==item.id))}/>`)}
           </div>`}
-
         ${log.length===0 && html`
           <div style="text-align:center;color:var(--border);padding:44px 20px;font-size:13px">
             <div style="font-size:30px;margin-bottom:10px">🍽</div>
@@ -677,7 +560,7 @@ function App() {
           <div style="display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:9px;margin-bottom:12px;background:${key?'#85b0981a':'#b872721a'};border:1px solid ${key?'#85b09840':'#b8727240'}">
             <span style="width:7px;height:7px;border-radius:50%;background:${key?'var(--p)':'var(--danger)'};flex-shrink:0"/>
             <span style="font-size:12px;color:${key?'var(--p)':'var(--danger)'}">
-              ${key ? 'API key opgeslagen' : 'Geen API key — AI zoeken werkt niet'}
+              ${key ? 'API key opgeslagen' : 'Geen API key — AI schatting werkt niet'}
             </span>
           </div>
           <input type="password" value=${key} onInput=${e=>setKeyState(e.target.value)}
@@ -689,7 +572,6 @@ function App() {
             Gratis key via <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>
           </div>
         </div>
-
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:12px">Dagelijkse doelen</div>
           ${[['calorieën','Calorieën (kcal)'],['eiwitten','Eiwitten (g)'],['koolhydraten','Koolhydraten (g)'],['vetten','Vetten (g)']].map(([k,lbl])=>html`
@@ -704,7 +586,6 @@ function App() {
           }}>${gSaved ? '✓ Opgeslagen' : 'Doelen opslaan'}</button>
         </div>
       </div>`}
-
     </div>
   </div>`;
 }
