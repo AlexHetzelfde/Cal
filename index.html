@@ -261,9 +261,9 @@ const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? 
 
 const searchALicious = async (q, signal, size = 50) => {
   const res = await timedFetch(
-    `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(q.trim())}&size=${size}&fields=product_name,brands,nutriments,serving_size`,
+    `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(q.trim())}&page_size=${size}&langs=nl&fields=product_name,brands,nutriments,serving_size`,
     signal
-  );
+);
   const data = await res.json();
   // Zoekresultaten zitten in data.hits.hits (Elasticsearch-formaat)
   const rawHits = data.hits?.hits ?? data.hits ?? [];
