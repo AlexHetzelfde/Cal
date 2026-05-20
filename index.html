@@ -66,6 +66,8 @@
     .scanner-frame-tr { top:0;right:0;border-width:3px 3px 0 0;border-radius:0 4px 0 0; }
     .scanner-frame-bl { bottom:0;left:0;border-width:0 0 3px 3px;border-radius:0 0 0 4px; }
     .scanner-line { position: absolute; left: 4px; right: 4px; height: 2px; background: linear-gradient(90deg, transparent, var(--p), transparent); animation: scanline 2s ease-in-out infinite; }
+    /* Pill button base — active state applied inline for dynamic colors */
+    .pill { border-radius: 20px; padding: 5px 12px; font-size: 11px; cursor: pointer; transition: all .15s; font-family: 'JetBrains Mono', monospace; white-space: nowrap; line-height: 1; }
   </style>
 </head>
 <body>
@@ -87,15 +89,26 @@ function saveLog(log) { jset('ct_log', { date: TODAY(), items: log }); }
 const DEFAULT_GOALS = { calorieën: 2800, eiwitten: 150, koolhydraten: 200, vetten: 65 };
 
 // ── Qty extractor ─────────────────────────────────────────────────────────────
-// Pakt getal + optionele eenheid van het begin van de invoer af.
-// "150g zaanse hoeve yoghurt" → { qty: 150, clean: "zaanse hoeve yoghurt" }
 const QTY_RE = /^(\d+(?:[.,]\d+)?)\s*(g|gr|gram|kg|ml|l|liter|stuks?|st|x)?\s*/i;
 function extractQty(raw) {
   const m = raw.trim().match(QTY_RE);
-  if (!m) return { qty: 100, clean: raw.trim() };
+  if (!m) return { qty: null, clean: raw.trim() }; // null = user didn't specify
   const qty = parseFloat(m[1].replace(',', '.'));
   const clean = raw.trim().slice(m[0].length).trim();
-  return { qty: qty || 100, clean: clean || raw.trim() };
+  return { qty: qty || null, clean: clean || raw.trim() };
+}
+
+// ── Serving size parser ───────────────────────────────────────────────────────
+// Handles: "30g", "30 g", "1 snee (30g)", "2 biscuits (24 g)", "125ml", "(100 g)"
+function parseServingSize(raw) {
+  if (!raw) return null;
+  // Grams/ml in parentheses first: (30g), (30 g)
+  let m = raw.match(/\((\d+(?:[.,]\d+)?)\s*(?:g|ml)\)/i);
+  if (m) return parseFloat(m[1].replace(',', '.'));
+  // Plain "30g" or "30 g" or "30ml" at or near the start
+  m = raw.match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s*(?:g|ml)\b/i);
+  if (m) return parseFloat(m[1].replace(',', '.'));
+  return null;
 }
 
 // ── AI prompts ─────────────────────────────────────────────────────────────────
@@ -103,8 +116,6 @@ const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSO
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 
-// AI genereert 2-3 zoekterm-varianten per product, van specifiek naar algemeen.
-// Doel: OFF-treffers vergroten door spellingcorrectie en bredere fallbacks.
 const VARIANTS_SYSTEM = `Je bent een zoekterm-specialist voor de Open Food Facts productendatabase.
 Corrigeer alleen spelfouten in de productnaam. Behoud altijd de merknaam.
 Verwijder hoeveelheden en eenheden. Geef maximaal 2 varianten per product.
@@ -116,15 +127,11 @@ ALLEEN valide JSON:
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash'];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-// Retry-strategie bij overbelasting: tot MAX_RETRIES pogingen per model,
-// met exponential backoff (1s → 2s → 4s). Daarna volgend model, dan fout.
 const MAX_RETRIES = 3;
 
 const callGemini = async (systemText, userText, maxTokens = 1000) => {
   const k = getKey();
   if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
-
   for (const model of MODELS) {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const res = await fetch(
@@ -137,24 +144,17 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
           }) }
       );
       const data = await res.json();
-
-      // Overbelast → wacht en probeer opnieuw
       const overloaded = data.error?.code === 429
         || data.error?.status === 'RESOURCE_EXHAUSTED'
         || data.error?.status === 'UNAVAILABLE';
-      if (overloaded) {
-        const waitMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
-        await sleep(waitMs);
-        continue; // volgende poging, zelfde model
-      }
-
+      if (overloaded) { await sleep(1000 * Math.pow(2, attempt)); continue; }
       if (data.error) throw new Error(data.error.message);
-      return data; // succes
+      return data;
     }
-    // Dit model is uitgeput, probeer het volgende
   }
   throw new Error('API is overbelast. Probeer het over een moment opnieuw.');
 };
+
 const parseGeminiJson = (data) => {
   const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
   const clean = text.replace(/```json|```/g, '').trim();
@@ -163,16 +163,12 @@ const parseGeminiJson = (data) => {
   return JSON.parse(clean.slice(start, end + 1));
 };
 
-// Vraag AI om zoekterm-varianten. Geeft array terug: [{varianten:[...]}, ...]
-// Als het mislukt (geen key, API-fout) → null, dan zoeken we gewoon op de clean term.
 const getSearchVariants = async (cleanTermen) => {
   try {
     const data = await callGemini(VARIANTS_SYSTEM, cleanTermen.join('\n'), 600);
     const parsed = parseGeminiJson(data);
     return parsed.producten || null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 };
 
 // ── OFF ───────────────────────────────────────────────────────────────────────
@@ -182,9 +178,10 @@ const timedFetch = (url, signal, ms = 8000) => Promise.race([
 ]);
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
 
+// serving_size toegevoegd aan fields
 const offSearch = async (q, signal) => {
   const res = await timedFetch(
-    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q.trim())}&search_simple=1&action=process&json=1&page_size=6&fields=product_name,brands,nutriments`,
+    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q.trim())}&search_simple=1&action=process&json=1&page_size=6&fields=product_name,brands,nutriments,serving_size`,
     signal
   );
   const data = await res.json();
@@ -203,7 +200,6 @@ const offBarcode = async (barcode, signal) => {
   return null;
 };
 
-// Probeer varianten één voor één in OFF; stop bij eerste treffer.
 const offSearchWithVariants = async (varianten, signal) => {
   for (const v of varianten) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -254,37 +250,90 @@ function LogCard({ item, onRemove }) {
 }
 
 // ── SearchResult ──────────────────────────────────────────────────────────────
+// Verbeteringen: serving_size knop, vermenigvuldigers of snelknoppen, grotere input, voeg-toe volledig breed
 function SearchResult({ product, onAdd, initialQty }) {
   const [qty, setQty] = useState(initialQty || 100);
   const [done, setDone] = useState(false);
-  const n = product.nutriments, f = qty / 100;
+  const n = product.nutriments;
+  const f = qty / 100;
   const cal = Math.round(getKcal100g(n) * f);
+
+  // Parseer serveergrootte uit OFF
+  const rawServing = product.serving_size || '';
+  const servingGrams = parseServingSize(rawServing);
+
+  // Stel knoppertekst samen voor serveergrootte
+  const servingLabel = (() => {
+    if (!servingGrams) return null;
+    // Als rawServing een beschrijving bevat (niet alleen "30g"), toon die ook
+    const cleaned = rawServing.trim();
+    const isJustGrams = /^(\d+(?:[.,]\d+)?)\s*(?:g|ml)$/i.test(cleaned);
+    return isJustGrams ? `1 portie · ${servingGrams}g` : `1 portie · ${servingGrams}g (${cleaned})`;
+  })();
+
+  const MULTIPLIERS = [1, 2, 3, 5];
+  const QUICK_SIZES = [25, 50, 100, 150, 200];
+
   const add = () => { onAdd(product, qty); setDone(true); setTimeout(() => setDone(false), 1600); };
+
+  // Gedeelde pill-stijl
+  const pillStyle = (active, color = 'var(--c)') =>
+    `background:${active ? color : 'var(--s2)'};color:${active ? 'var(--bg)' : 'var(--muted)'};border:1px solid ${active ? color : 'var(--border)'};border-radius:20px;padding:5px 12px;font-size:11px;cursor:pointer;transition:all .15s;font-family:'JetBrains Mono',monospace;white-space:nowrap;line-height:1`;
+
   return html`
     <div class="card fade-up">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${product.product_name}</div>
-          ${product.brands && html`<div style="color:var(--muted);font-size:11px;margin-top:2px">${product.brands}</div>`}
-          <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
-            ${[['E',(n['proteins_100g']||0)*f,'var(--p)'],['K',(n['carbohydrates_100g']||0)*f,'var(--c)'],['V',(n['fat_100g']||0)*f,'var(--f)']].map(([l,v,col]) => html`
-              <span class="tag" style="color:${col};background:${col}1a">${l} ${Math.round(v)}g</span>`)}
-          </div>
-        </div>
-        <div style="text-align:right;flex-shrink:0">
-          <div class="mono" style="font-size:17px;font-weight:600">${cal}</div>
-          <div style="color:var(--muted);font-size:9px">kcal</div>
-        </div>
+
+      <!-- Productnaam + merk -->
+      <div style="margin-bottom:${servingLabel ? '8px' : '12px'}">
+        <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${product.product_name}</div>
+        ${product.brands && html`<div style="color:var(--muted);font-size:11px;margin-top:2px">${product.brands}</div>`}
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
-        <span style="font-size:11px;color:var(--muted)">Hoeveel:</span>
-        <input type="number" value=${qty} onInput=${e=>setQty(Number(e.target.value))} min="1"
-          class="mono field" style="width:60px;padding:5px 8px;text-align:center;font-size:12px"/>
-        <span style="font-size:11px;color:var(--muted)">g/ml</span>
-        <button onClick=${add} style="margin-left:auto;background:${done?'var(--p)':'var(--s2)'};color:${done?'var(--bg)':'var(--text)'};border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap">
-          ${done ? '✓ Toegevoegd' : '+ Voeg toe'}
+
+      <!-- Serveergrootte knop (indien beschikbaar) -->
+      ${servingLabel && html`
+        <button onClick=${() => setQty(servingGrams)}
+          style="display:inline-flex;align-items:center;gap:5px;background:#85b0981a;border:1px solid #85b09840;border-radius:8px;color:var(--p);font-size:11px;padding:5px 10px;cursor:pointer;margin-bottom:12px;transition:background .15s"
+          onMouseOver=${e => e.currentTarget.style.background = '#85b09830'}
+          onMouseOut=${e => e.currentTarget.style.background = '#85b0981a'}>
+          ↗ ${servingLabel}
         </button>
+      `}
+
+      <!-- Hoeveelheid input + kcal weergave -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">
+        <input type="number" value=${qty}
+          onInput=${e => setQty(Math.max(1, Number(e.target.value) || 1))}
+          min="1" class="mono field"
+          style="width:84px;padding:9px 10px;text-align:center;font-size:18px;font-weight:700;flex-shrink:0"/>
+        <span style="font-size:12px;color:var(--muted);flex-shrink:0">g / ml</span>
+        <div style="margin-left:auto;text-align:right;flex-shrink:0">
+          <div class="mono" style="font-size:22px;font-weight:700;line-height:1">${cal}</div>
+          <div style="color:var(--muted);font-size:9px;margin-top:2px">kcal</div>
+        </div>
       </div>
+
+      <!-- Vermenigvuldigers (serving_size aanwezig) of snelknoppen (fallback) -->
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
+        ${servingGrams
+          ? MULTIPLIERS.map(m => {
+              const v = Math.round(servingGrams * m);
+              return html`<button onClick=${() => setQty(v)} style=${pillStyle(qty === v)}>×${m}</button>`;
+            })
+          : QUICK_SIZES.map(s => html`<button onClick=${() => setQty(s)} style=${pillStyle(qty === s)}>${s}g</button>`)
+        }
+      </div>
+
+      <!-- Macro-tags -->
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px">
+        ${[['E',(n['proteins_100g']||0)*f,'var(--p)'],['K',(n['carbohydrates_100g']||0)*f,'var(--c)'],['V',(n['fat_100g']||0)*f,'var(--f)']].map(([l,v,col]) => html`
+          <span class="tag" style="color:${col};background:${col}1a">${l} ${Math.round(v)}g</span>`)}
+      </div>
+
+      <!-- Voeg toe knop, volledige breedte voor mobiel gemak -->
+      <button onClick=${add}
+        style="width:100%;background:${done ? 'var(--p)' : 'var(--s2)'};color:${done ? 'var(--bg)' : 'var(--text)'};border:1px solid ${done ? 'var(--p)' : 'var(--border)'};border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.01em">
+        ${done ? '✓ Toegevoegd' : '+ Voeg toe'}
+      </button>
     </div>`;
 }
 
@@ -348,14 +397,12 @@ function App() {
   const [key,    setKeyState] = useState(getKey);
   const [tab,    setTab]    = useState('add');
 
-  // OFF state
   const [offQuery,    setOffQuery]    = useState('');
   const [offResults,  setOffResults]  = useState([]);
   const [offLoading,  setOffLoading]  = useState(false);
-  const [offPhaseMsg, setOffPhaseMsg] = useState(''); // laadtekst
+  const [offPhaseMsg, setOffPhaseMsg] = useState('');
   const [offError,    setOffError]    = useState('');
 
-  // AI (beschrijving) state
   const [aiQuery,   setAiQuery]   = useState('');
   const [aiBericht, setAiBericht] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -401,20 +448,16 @@ function App() {
     setOffError('');
     setOffResults([]);
 
-    // Splits op komma, haal hoeveelheid van elke term af
     const termen  = q.split(',').map(s => s.trim()).filter(Boolean);
-    const parsed  = termen.map(extractQty); // [{qty, clean}, ...]
+    const parsed  = termen.map(extractQty);
     const cleans  = parsed.map(p => p.clean);
 
-    // Stap 1: Als er een API-key is, vraag AI om varianten per zoekterm
-    let variantenPerTerm = null; // null = geen AI, direct zoeken op clean term
+    let variantenPerTerm = null;
     if (getKey()) {
       setOffPhaseMsg('AI normaliseert zoektermen…');
       variantenPerTerm = await getSearchVariants(cleans);
-      // getSearchVariants vangt fouten intern op en geeft null terug bij mislukking
     }
 
-    // Stap 2: Per term varianten in OFF proberen
     setOffPhaseMsg('Zoeken in database…');
     try {
       const gevonden = [];
@@ -422,16 +465,15 @@ function App() {
 
       for (let i = 0; i < cleans.length; i++) {
         if (signal.aborted) break;
-        const { qty } = parsed[i];
+        const { qty } = parsed[i]; // kan null zijn als gebruiker geen hoeveelheid opgaf
 
-        // Varianten: door AI gegeven, of anders gewoon de clean zoekterm
         let varianten = variantenPerTerm?.[i]?.varianten ?? [cleans[i]];
-        // Zorg dat clean term altijd als finale fallback aanwezig is
         if (!varianten.includes(cleans[i])) varianten = [...varianten, cleans[i]];
 
         try {
           const prods = await offSearchWithVariants(varianten, signal);
           if (prods.length) {
+            // initialQty: door gebruiker opgegeven (qty), anders null (kaartje gebruikt eigen standaard)
             gevonden.push(...prods.slice(0, 3).map(product => ({ product, qty })));
           } else {
             mislukt.push(termen[i]);
@@ -477,22 +519,36 @@ function App() {
     }
   };
 
-  // ── Barcode ───────────────────────────────────────────────────────────────
+  // ── Barcode: direct endpoint → tekstzoek fallback ─────────────────────────
   const handleBarcode = async (code) => {
     setScanning(false);
     if (abortOFF.current) abortOFF.current.abort();
     const controller = new AbortController();
     abortOFF.current = controller;
     const { signal } = controller;
+
     setOffLoading(true);
     setOffPhaseMsg('Barcode opzoeken…');
     setOffError('');
     setOffResults([]);
     setOffQuery(code);
+
     try {
+      // Stap 1: directe barcode-lookup
       const product = await offBarcode(code, signal);
-      if (product) { setOffResults([{ product, qty: 100 }]); }
-      else          { setOffError(`Barcode ${code} niet gevonden in de database.`); }
+
+      if (product) {
+        setOffResults([{ product, qty: null }]);
+      } else {
+        // Stap 2: tekstzoek-fallback — OFF's zoekmachine is vergevingsgezinder
+        setOffPhaseMsg('Niet direct gevonden, zoeken op barcodenummer…');
+        const prods = await offSearch(code, signal);
+        if (prods.length) {
+          setOffResults(prods.slice(0, 3).map(p => ({ product: p, qty: null })));
+        } else {
+          setOffError(`Barcode ${code} niet gevonden in de database.`);
+        }
+      }
     } catch (e) {
       if (e.name !== 'AbortError') setOffError('Fout bij opzoeken van barcode.');
     } finally {
@@ -581,7 +637,7 @@ function App() {
             <input ref=${offInputRef} value=${offQuery}
               onInput=${e=>{ setOffQuery(e.target.value); if(offResults.length||offError){ setOffResults([]); setOffError(''); } }}
               onKeyDown=${e=>e.key==='Enter'&&handleOFFSearch()}
-              placeholder="bijv. 150g zaanse hoeve volle yoghurt"
+              placeholder="bijv. 30g volkoren brood, 2 eieren"
               class="field" style="flex:1"/>
             <button onClick=${handleOFFSearch} disabled=${offLoading||!offQuery.trim()}
               style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${offLoading||!offQuery.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
@@ -601,7 +657,7 @@ function App() {
             <span class="source-badge" style="background:#7fa4b81a;color:var(--c)">● Open Food Facts</span>
           </div>
           ${offResults.map(({ product, qty }) => html`
-            <${SearchResult} product=${product} onAdd=${addOFF} initialQty=${qty}/>`)}
+            <${SearchResult} key=${product.product_name} product=${product} onAdd=${addOFF} initialQty=${qty}/>`)}
         `}
 
         <hr class="divider"/>
