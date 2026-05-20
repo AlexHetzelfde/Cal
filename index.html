@@ -253,7 +253,7 @@ const rateLimitTracker = {
 };
   
 // ── OFF ───────────────────────────────────────────────────────────────────────
-const timedFetch = (url, signal, ms = 8000) => Promise.race([
+const timedFetch = (url, signal, ms = 20000) => Promise.race([
   fetch(url, { signal }),
   new Promise((_, rej) => setTimeout(() => rej(new Error('Verzoek duurde te lang.')), ms))
 ]);
@@ -594,7 +594,7 @@ function App() {
   const [kSaved,   setKSaved]   = useState(false);
   const [gSaved,   setGSaved]   = useState(false);
   const [usageTick, setUsageTick] = useState(0);
-  const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 50));
+  const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 20));
   const [presets, setPresets] = useState(() => loadPresets());
 
   const offInputRef = useRef();
