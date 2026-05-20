@@ -106,10 +106,12 @@ Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 // AI genereert 2-3 zoekterm-varianten per product, van specifiek naar algemeen.
 // Doel: OFF-treffers vergroten door spellingcorrectie en bredere fallbacks.
 const VARIANTS_SYSTEM = `Je bent een zoekterm-specialist voor de Open Food Facts productendatabase.
-Geef voor elke productnaam op een nieuwe regel 2-3 zoektermen, van specifiek naar algemeen.
-Corrigeer spelfouten. Verwijder hoeveelheden en eenheden.
-Geef ALLEEN valide JSON, niets anders:
-{"producten":[{"varianten":["exacte gecorrigeerde naam","kortere variant","alleen merk of hoofdtype"]}]}`;
+Corrigeer alleen spelfouten in de productnaam. Behoud altijd de merknaam.
+Verwijder hoeveelheden en eenheden. Geef maximaal 2 varianten per product.
+Eerste variant: gecorrigeerde exacte naam. Tweede: merk + kernproduct (nooit alleen producttype zonder merk).
+Ga NOOIT zo breed dat de merknaam verdwijnt. Voorbeeld: "zaanse hoeven volle yoghurt" geeft ["zaanse hoeve volle yoghurt","zaanse hoeve yoghurt"].
+ALLEEN valide JSON:
+{"producten":[{"varianten":["gecorrigeerde naam met merk","merk + kernwoord"]}]}`;
 
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash'];
