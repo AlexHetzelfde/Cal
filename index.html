@@ -260,22 +260,24 @@ const timedFetch = (url, signal, ms = 8000) => Promise.race([
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
 
 const searchALicious = async (q, signal, size = 50) => {
-  const url = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(q.trim())}&page_size=${size}&langs=nl`;
+  const url =
+    `https://world.openfoodfacts.org/cgi/search.pl` +
+    `?search_terms=${encodeURIComponent(q.trim())}` +
+    `&search_simple=1` +
+    `&action=process` +
+    `&json=1` +
+    `&page_size=${size}` +
+    `&lc=nl` +
+    `&fields=product_name,brands,nutriments,serving_size`;
+
   const res = await timedFetch(url, signal);
-  if (!res.ok) throw new Error(`Search API fout (${res.status})`);
+  if (!res.ok) throw new Error(`OFF search fout (${res.status})`);
+
   const data = await res.json();
 
-  // vang alle mogelijke response-structuren af
-  const products =
-    data.products ??
-    data.hits?.map(h => h._source ?? h) ??
-    data.hits?.hits?.map(h => h._source ?? h) ??
-    [];
-
-  // toon alle producten die een naam hebben (géén strenge filter op voedingswaarden)
-  return products.filter(p => p && p.product_name);
+  // Toon alle producten die een naam hebben, ook zonder voedingswaarden
+  return (data.products || []).filter(p => p && p.product_name);
 };
-
 const offBarcode = async (barcode, signal) => {
   const res = await timedFetch(
     `https://world.openfoodfacts.org/api/v3/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
