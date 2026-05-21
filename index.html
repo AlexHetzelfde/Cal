@@ -340,19 +340,23 @@ const searchALicious = async (q, signal, size = 50) => {
   const tryFuzzy = async (term) => {
     if (signal.aborted) return;
     const fuzzyUrl =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=0&action=process&json=1` +
-      `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-
+  `https://world.openfoodfacts.org/cgi/search.pl` +
+  `?search_terms=${encodeURIComponent(term)}` +
+  `&search_simple=0&action=process&json=1` +
+  `&page_size=${size}` +
+  `&fields=product_name,brands,nutriments,serving_size`;
+    console.log('tryFuzzy aangeroepen met', term, fuzzyUrl);
     try {
       const res = await timedFetch(fuzzyUrl, signal, 2000);
+      console.log('tryFuzzy response ok:', res.ok, 'status:', res.status);
       if (res.ok) {
         const data = await res.json();
+        console.log('tryFuzzy data.products length:', data?.products?.length);
         if (data.products) addProducts(data.products);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('tryFuzzy error:', e);
+    }
   };
 
   // Stap 1 – twee pogingen met de volledige term
@@ -378,7 +382,7 @@ const searchALicious = async (q, signal, size = 50) => {
   if (allProducts.length === 0 && !signal.aborted) {
     await tryFuzzy(q);
   }
-
+console.log('searchALicious resultaten voor', q, allProducts.length, allProducts);
   return allProducts;
 };
   
