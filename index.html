@@ -374,101 +374,14 @@ const searchALicious = async (q, signal, size = 50) => {
     }
   }
 
-// Stap 2b – zelfde term zonder taalfilter
-  const tryNoLang = async (term) => {
-    if (signal.aborted) return;
-    const url =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=1&action=process&json=1` +
-      `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-    try {
-      const res = await timedFetch(url, signal, 2000);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) addProducts(data.products);
-      }
-    } catch (e) {}
-  };
-
+  // Stap 3 – fuzzy fallback (search_simple=0) als er nog niets gevonden is
   if (allProducts.length === 0 && !signal.aborted) {
-    await tryNoLang(q);
+    await tryFuzzy(q);
   }
-  
-  // Stap 3 – fuzzy fallback met search_simple=0
-  const tryFuzzyNoLang = async (term) => {
-    if (signal.aborted) return;
-    const url =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=0&action=process&json=1` +
-      `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-    try {
-      const res = await timedFetch(url, signal, 2000);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) addProducts(data.products);
-      }
-    } catch (e) {}
-  };
-
-  // Stap 3 – fuzzy fallback zonder taalfilter
-  await tryFuzzyNoLang(q);
 
   return allProducts;
 };
-
-const offBarcode = async (barcode, signal) => {
-  const hasNutriments = (product) => product && product.nutriments;
-  const isValid = (data) =>
-    (data.status === 1 || data.status === 'success' || data.status_verbose === 'product found') &&
-    hasNutriments(data.product);
-
-  // V3
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v3/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
-      signal
-    );
-    const data = await res.json();
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  // V2
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
-      signal
-    );
-    const data = await res.json();
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  // V1
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v1/product/${barcode}.json`,
-      signal
-    );
-    const data = await res.json();
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  // V0
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
-      signal
-    );
-    const data = await res.json();
-    // V0 heeft vaak status_verbose
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  return null;
-};
+  
 // ── Ring ──────────────────────────────────────────────────────────────────────
 function Ring({ value, goal, label, color }) {
   const r = 26, c = 2 * Math.PI * r, pct = Math.min(value / goal, 1), over = value > goal;
