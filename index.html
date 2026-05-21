@@ -70,17 +70,13 @@
     .scanner-frame-bl { bottom:0;left:0;border-width:0 0 3px 3px;border-radius:0 0 0 4px; }
     .scanner-line { position: absolute; left: 4px; right: 4px; height: 2px; background: linear-gradient(90deg, transparent, var(--p), transparent); animation: scanline 2s ease-in-out infinite; }
     .pill { border-radius: 20px; padding: 5px 12px; font-size: 11px; cursor: pointer; transition: all .15s; font-family: 'JetBrains Mono', monospace; white-space: nowrap; line-height: 1; }
-    /* Modal backdrop */
     .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.65); backdrop-filter: blur(3px); animation: backdropIn .2s ease; }
-    /* Modal bottom sheet */
     .modal-sheet { position: fixed; bottom: 0; left: 0; right: 0; z-index: 51; background: var(--s1); border-radius: 20px 20px 0 0; border: 1px solid var(--border); border-bottom: none; max-height: 85vh; display: flex; flex-direction: column; }
-    /* Product row inside modal */
     .product-row { background: var(--s2); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 7px; overflow: hidden; transition: border-color .15s; }
     .product-row.expanded { border-color: var(--c); }
     .product-row-header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; user-select: none; }
     .product-row-header:active { background: rgba(255,255,255,.03); }
     .product-row-body { border-top: 1px solid var(--border); padding: 13px 14px; animation: fadeUp .18s ease; }
-    /* Drag handle */
     .drag-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 10px auto 0; }
   </style>
 </head>
@@ -143,12 +139,7 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
   const k = getKey();
   if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
   for (const model of MODELS) {
-    // ═══ CONTROLE LIMIETEN ═══
-    if (!rateLimitTracker.canMakeRequest(model)) {
-      // Ga naar volgende model als deze over limiet zit
-      continue;
-    }
-
+    if (!rateLimitTracker.canMakeRequest(model)) continue;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${k}`,
@@ -165,11 +156,8 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
         || data.error?.status === 'UNAVAILABLE';
       if (overloaded) { await sleep(1000 * Math.pow(2, attempt)); continue; }
       if (data.error) throw new Error(data.error.message);
-
-      // ═══ GEBRUIK LOGGEN ═══
       const tokens = data.usageMetadata?.totalTokenCount ?? 0;
       rateLimitTracker.logUsage(model, tokens);
-
       return data;
     }
   }
@@ -184,72 +172,46 @@ const parseGeminiJson = (data) => {
   return JSON.parse(clean.slice(start, end + 1));
 };
 
-// ── Rate Limit Tracker ─────────────────────────────────────────────────────
+// ── Rate Limit Tracker ────────────────────────────────────────────────────────
 const USAGE_KEY = 'ct_usage';
-
-const getUsageLog = () => {
-  try { return JSON.parse(localStorage.getItem(USAGE_KEY)) || []; } catch { return []; }
-};
+const getUsageLog = () => { try { return JSON.parse(localStorage.getItem(USAGE_KEY)) || []; } catch { return []; } };
 const setUsageLog = (log) => localStorage.setItem(USAGE_KEY, JSON.stringify(log));
-
-const cleanLog = (log, maxAgeMs) => {
-  const now = Date.now();
-  return log.filter(e => (now - e.ts) < maxAgeMs);
-};
+const cleanLog = (log, maxAgeMs) => { const now = Date.now(); return log.filter(e => (now - e.ts) < maxAgeMs); };
 
 const rateLimitTracker = {
   canMakeRequest(model) {
     const limits = MODEL_LIMITS[model];
-    if (!limits) return true; // onbekend model, geen beperking
-    const now = Date.now();
+    if (!limits) return true;
     let log = getUsageLog();
-
-    // opruimen
-    log = cleanLog(log, 24 * 60 * 60 * 1000); // ouder dan 1 dag weg
-    const minuteLog = cleanLog(log, 60_000);  // laatste minuut
+    log = cleanLog(log, 24 * 60 * 60 * 1000);
+    const minuteLog = cleanLog(log, 60_000);
     const dayLog = cleanLog(log, 24 * 60 * 60 * 1000);
-
     const rpmUsed = minuteLog.filter(e => e.model === model).length;
     const rpdUsed = dayLog.filter(e => e.model === model).length;
-    const tpmUsed = minuteLog
-      .filter(e => e.model === model)
-      .reduce((sum, e) => sum + (e.tokens || 0), 0);
-
+    const tpmUsed = minuteLog.filter(e => e.model === model).reduce((sum, e) => sum + (e.tokens || 0), 0);
     if (rpmUsed >= limits.rpm) return false;
     if (rpdUsed >= limits.rpd) return false;
     if (tpmUsed >= limits.tpm) return false;
     return true;
   },
-
   logUsage(model, tokens) {
     const log = getUsageLog();
     log.push({ model, tokens: tokens || 0, ts: Date.now() });
-    // bewaar alleen de laatste 24 uur om localStorage niet te laten exploderen
-    const cleaned = cleanLog(log, 24 * 60 * 60 * 1000);
-    setUsageLog(cleaned);
+    setUsageLog(cleanLog(log, 24 * 60 * 60 * 1000));
   },
-
   getStats() {
-    const now = Date.now();
     const log = getUsageLog();
     const minuteLog = cleanLog(log, 60_000);
     const dayLog = cleanLog(log, 24 * 60 * 60 * 1000);
-
-    // Tel per model en overall
     const stats = { rpm: {}, rpd: {}, tpm: {} };
     for (const model of Object.keys(MODEL_LIMITS)) {
       stats.rpm[model] = minuteLog.filter(e => e.model === model).length;
       stats.rpd[model] = dayLog.filter(e => e.model === model).length;
-      stats.tpm[model] = minuteLog
-        .filter(e => e.model === model)
-        .reduce((sum, e) => sum + (e.tokens || 0), 0);
+      stats.tpm[model] = minuteLog.filter(e => e.model === model).reduce((sum, e) => sum + (e.tokens || 0), 0);
     }
     return stats;
   },
-
-  reset() {
-    setUsageLog([]);
-  }
+  reset() { setUsageLog([]); }
 };
 
 // Polyfill voor oudere Safari (< 17.4)
@@ -258,37 +220,42 @@ if (!AbortSignal.any) {
     const controller = new AbortController();
     const onAbort = () => {
       controller.abort();
-      for (const s of signals) {
-        if (s) s.removeEventListener('abort', onAbort);
-      }
+      for (const s of signals) { if (s) s.removeEventListener('abort', onAbort); }
     };
     for (const s of signals) {
       if (!s) continue;
-      if (s.aborted) {
-        controller.abort();
-        break;
-      }
+      if (s.aborted) { controller.abort(); break; }
       s.addEventListener('abort', onAbort, { once: true });
     }
     return controller.signal;
   };
 }
-  
-// ── OFF ───────────────────────────────────────────────────────────────────────
+
+// ── Fetch helpers ─────────────────────────────────────────────────────────────
 const timedFetch = (url, signal, ms = 20000) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ms);
-
-  // Combineer de externe signal met onze lokale
   const combinedSignal = signal
     ? AbortSignal.any([signal, controller.signal])
     : controller.signal;
-
   return fetch(url, { signal: combinedSignal }).finally(() => clearTimeout(timeoutId));
 };
 
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
 
+// ── Open Food Facts: barcode lookup ──────────────────────────────────────────
+// FIX: was ontbrekend — veroorzaakte ReferenceError bij barcode-scan
+const offBarcode = async (code, signal) => {
+  const url = `https://world.openfoodfacts.org/api/v0/product/${code}.json`;
+  const res = await timedFetch(url, signal, 8000);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.status === 1 ? data.product : null;
+};
+
+// ── Open Food Facts: tekst zoeken ─────────────────────────────────────────────
+// FIX: search.openfoodfacts.org verwijderd — blokkeert altijd CORS vanuit browser
+// Alleen world.openfoodfacts.org gebruiken; timeout verhoogd naar 5s
 const searchALicious = async (q, signal, size = 50) => {
   const allProducts = [];
   const seen = new Set();
@@ -303,56 +270,40 @@ const searchALicious = async (q, signal, size = 50) => {
     }
   };
 
-  // Eén snelle ronde met beide API's (max 2 seconden)
   const tryBoth = async (term) => {
     if (signal.aborted) return;
-    const modernUrl = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(term)}&page_size=${size}`;
-    const fallbackUrl =
+    const url =
       `https://world.openfoodfacts.org/cgi/search.pl` +
       `?search_terms=${encodeURIComponent(term)}` +
       `&search_simple=1&action=process&json=1` +
       `&page_size=${size}` +
       `&fields=product_name,brands,nutriments,serving_size`;
-
-    const [modernRes, fallbackRes] = await Promise.allSettled([
-      timedFetch(modernUrl, signal, 2000),
-      timedFetch(fallbackUrl, signal, 2000)
-    ]);
-
-    if (modernRes.status === 'fulfilled' && modernRes.value.ok) {
-      try {
-        const data = await modernRes.value.json();
-        const prods = data.products ??
-          data.hits?.map(h => h._source ?? h) ??
-          data.hits?.hits?.map(h => h._source ?? h) ?? [];
-        addProducts(prods);
-      } catch (e) {}
-    }
-    if (fallbackRes.status === 'fulfilled' && fallbackRes.value.ok) {
-      try {
-        const data = await fallbackRes.value.json();
-        if (data.products) addProducts(data.products);
-      } catch (e) {}
-    }
-  };
-
-  // Fuzzy ronde met search_simple=0 (minder strikt, vindt ook 'walnoten')
-  const tryFuzzy = async (term) => {
-    if (signal.aborted) return;
-    const fuzzyUrl =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=0&action=process&json=1` +
-      `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-
     try {
-      const res = await timedFetch(fuzzyUrl, signal, 2000);
+      const res = await timedFetch(url, signal, 5000);
       if (res.ok) {
         const data = await res.json();
         if (data.products) addProducts(data.products);
       }
     } catch (e) {}
+  };
+
+  const tryFuzzy = async (term) => {
+    if (signal.aborted) return;
+    const url =
+      `https://world.openfoodfacts.org/cgi/search.pl` +
+      `?search_terms=${encodeURIComponent(term)}` +
+      `&search_simple=0&action=process&json=1` +
+      `&page_size=${size}` +
+      `&fields=product_name,brands,nutriments,serving_size`;
+    try {
+      const res = await timedFetch(url, signal, 5000);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.products) addProducts(data.products);
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') console.error('tryFuzzy error:', e);
+    }
   };
 
   // Stap 1 – twee pogingen met de volledige term
@@ -365,7 +316,7 @@ const searchALicious = async (q, signal, size = 50) => {
 
   if (allProducts.length > 0 || signal.aborted) return allProducts;
 
-  // Stap 2 – meerdere woorden? Splits en zoek elk woord apart
+  // Stap 2 – meerdere woorden: splits en zoek elk woord apart
   if (q.includes(' ')) {
     const words = q.split(' ').filter(w => w.length >= 3);
     if (words.length > 1) {
@@ -374,101 +325,14 @@ const searchALicious = async (q, signal, size = 50) => {
     }
   }
 
-// Stap 2b – zelfde term zonder taalfilter
-  const tryNoLang = async (term) => {
-    if (signal.aborted) return;
-    const url =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=1&action=process&json=1` +
-      `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-    try {
-      const res = await timedFetch(url, signal, 2000);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) addProducts(data.products);
-      }
-    } catch (e) {}
-  };
-
+  // Stap 3 – fuzzy fallback als er nog niets gevonden is
   if (allProducts.length === 0 && !signal.aborted) {
-    await tryNoLang(q);
+    await tryFuzzy(q);
   }
-  
-  // Stap 3 – fuzzy fallback met search_simple=0
-  const tryFuzzyNoLang = async (term) => {
-    if (signal.aborted) return;
-    const url =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=0&action=process&json=1` +
-      `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-    try {
-      const res = await timedFetch(url, signal, 2000);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) addProducts(data.products);
-      }
-    } catch (e) {}
-  };
-
-  // Stap 3 – fuzzy fallback zonder taalfilter
-  await tryFuzzyNoLang(q);
 
   return allProducts;
 };
 
-const offBarcode = async (barcode, signal) => {
-  const hasNutriments = (product) => product && product.nutriments;
-  const isValid = (data) =>
-    (data.status === 1 || data.status === 'success' || data.status_verbose === 'product found') &&
-    hasNutriments(data.product);
-
-  // V3
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v3/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
-      signal
-    );
-    const data = await res.json();
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  // V2
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
-      signal
-    );
-    const data = await res.json();
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  // V1
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v1/product/${barcode}.json`,
-      signal
-    );
-    const data = await res.json();
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  // V0
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
-      signal
-    );
-    const data = await res.json();
-    // V0 heeft vaak status_verbose
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  return null;
-};
 // ── Ring ──────────────────────────────────────────────────────────────────────
 function Ring({ value, goal, label, color }) {
   const r = 26, c = 2 * Math.PI * r, pct = Math.min(value / goal, 1), over = value > goal;
@@ -543,8 +407,6 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
 
   return html`
     <div class=${'product-row' + (expanded ? ' expanded' : '')}>
-
-      <!-- Collapsed header (always visible) -->
       <div class="product-row-header" onClick=${onToggle}>
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
@@ -555,7 +417,6 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
               ${product.brands}
             </div>`}
         </div>
-        <!-- Compact macro dots when collapsed -->
         ${!expanded && html`
           <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-right:6px">
             ${[[(n['proteins_100g']||0),'var(--p)'],[(n['carbohydrates_100g']||0),'var(--c)'],[(n['fat_100g']||0),'var(--f)']].map(([v,col]) => html`
@@ -568,11 +429,8 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
         <div style="flex-shrink:0;color:var(--muted);font-size:14px;margin-left:4px;transition:transform .2s;transform:rotate(${expanded?'180':'0'}deg)">▾</div>
       </div>
 
-      <!-- Expanded detail -->
       ${expanded && html`
         <div class="product-row-body">
-
-          <!-- Serveergrootte knop -->
           ${servingLabel && html`
             <button onClick=${() => setQty(servingGrams)}
               style="display:inline-flex;align-items:center;gap:5px;background:#85b0981a;border:1px solid #85b09840;border-radius:8px;color:var(--p);font-size:11px;padding:5px 10px;cursor:pointer;margin-bottom:12px;transition:background .15s"
@@ -581,7 +439,6 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
               ↗ ${servingLabel}
             </button>`}
 
-          <!-- Qty input + kcal -->
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">
             <input type="number" value=${qty}
               onInput=${e => setQty(Math.max(1, Number(e.target.value) || 1))}
@@ -594,7 +451,6 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
             </div>
           </div>
 
-          <!-- Snelknoppen -->
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
             ${servingGrams
               ? MULTIPLIERS.map(m => {
@@ -605,13 +461,11 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
             }
           </div>
 
-          <!-- Macro tags -->
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px">
             ${[['E',(n['proteins_100g']||0)*f,'var(--p)'],['K',(n['carbohydrates_100g']||0)*f,'var(--c)'],['V',(n['fat_100g']||0)*f,'var(--f)']].map(([l,v,col]) => html`
               <span class="tag" style="color:${col};background:${col}1a">${l} ${Math.round(v)}g</span>`)}
           </div>
 
-          <!-- Voeg toe -->
           <button onClick=${add}
             style="width:100%;background:${done ? 'var(--p)' : 'var(--s1)'};color:${done ? 'var(--bg)' : 'var(--text)'};border:1px solid ${done ? 'var(--p)' : 'var(--border)'};border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.01em">
             ${done ? '✓ Toegevoegd' : '+ Voeg toe'}
@@ -623,22 +477,13 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
 // ── SearchModal ───────────────────────────────────────────────────────────────
 function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate }) {
   const [expandedIdx, setExpandedIdx] = useState(results.length === 1 ? 0 : null);
-
   const toggle = (idx) => setExpandedIdx(prev => prev === idx ? null : idx);
-
-  // Close on backdrop click
-  const handleBackdrop = (e) => {
-    if (e.target === e.currentTarget) onClose();
-  };
+  const handleBackdrop = (e) => { if (e.target === e.currentTarget) onClose(); };
 
   return html`
     <div class="modal-backdrop" onClick=${handleBackdrop}>
       <div class="modal-sheet slide-up">
-
-        <!-- Drag handle -->
         <div class="drag-handle"/>
-
-        <!-- Header -->
         <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px 10px">
           <div>
             <div style="font-weight:700;font-size:14px">
@@ -656,7 +501,6 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate })
             onMouseOut=${e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.borderColor='var(--border)'}}>×</button>
         </div>
 
-        <!-- AI fallback button -->
         <div style="padding:0 16px 12px">
           <button onClick=${onAIEstimate}
             style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;background:#b89e7212;border:1px solid #b89e7230;border-radius:10px;color:var(--f);padding:9px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s"
@@ -667,10 +511,8 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate })
           </button>
         </div>
 
-        <!-- Divider -->
         <div style="border-top:1px solid var(--border)"/>
 
-        <!-- Scrollable product list -->
         <div style="overflow-y:auto;padding:12px 16px 24px;flex:1">
           ${results.length === 0 && !offError && html`
             <div style="text-align:center;color:var(--muted);padding:32px 0;font-size:13px">
@@ -896,7 +738,7 @@ function MealBuilderModal({ onClose, onSave }) {
       </div>
     </div>`;
 }
-  
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const [log,    setLog]    = useState(loadLog);
@@ -910,7 +752,6 @@ function App() {
   const [offPhaseMsg, setOffPhaseMsg] = useState('');
   const [offError,    setOffError]    = useState('');
   const [showModal,   setShowModal]   = useState(false);
-  // Label shown in modal header (the "clean" search terms, without quantities)
   const [modalLabel,  setModalLabel]  = useState('');
 
   const [aiQuery,   setAiQuery]   = useState('');
@@ -957,12 +798,10 @@ function App() {
     setTimeout(() => offInputRef.current?.focus(), 50);
   };
 
-  // Trigger AI estimate from modal — close modal, fill AI query, run search
   const handleAIFromModal = async () => {
     const q = modalLabel || offQuery;
     closeModal();
     setAiQuery(q);
-    // Auto-run AI
     if (!q.trim() || aiLoading) return;
     setAiLoading(true);
     setAiError('');
@@ -981,44 +820,38 @@ function App() {
     }
   };
 
-
-const handleSavePreset = () => {
-  if (log.length === 0) return;
-  const name = prompt('Geef een naam voor deze maaltijd:');
-  if (!name || !name.trim()) return;
-  const newPreset = {
-    naam: name.trim(),
-    items: log.map(item => ({
-      naam: item.naam,
-      hoeveelheid: item.hoeveelheid,
-      calorieën: item.calorieën,
-      eiwitten: item.eiwitten,
-      koolhydraten: item.koolhydraten,
-      vetten: item.vetten
-    }))
+  const handleSavePreset = () => {
+    if (log.length === 0) return;
+    const name = prompt('Geef een naam voor deze maaltijd:');
+    if (!name || !name.trim()) return;
+    const newPreset = {
+      naam: name.trim(),
+      items: log.map(item => ({
+        naam: item.naam, hoeveelheid: item.hoeveelheid,
+        calorieën: item.calorieën, eiwitten: item.eiwitten,
+        koolhydraten: item.koolhydraten, vetten: item.vetten
+      }))
+    };
+    const updated = [...presets, newPreset];
+    setPresets(updated);
+    savePresets(updated);
   };
-  const updated = [...presets, newPreset];
-  setPresets(updated);
-  savePresets(updated);
-};
 
-const handleLoadPreset = (preset) => {
-  addItems(preset.items.map(item => ({ ...item })));
-};
+  const handleLoadPreset = (preset) => { addItems(preset.items.map(item => ({ ...item }))); };
 
-const handleDeletePreset = (index) => {
-  if (!confirm('Weet je zeker dat je deze maaltijd wilt verwijderen?')) return;
-  const updated = presets.filter((_, i) => i !== index);
-  setPresets(updated);
-  savePresets(updated);
-};
+  const handleDeletePreset = (index) => {
+    if (!confirm('Weet je zeker dat je deze maaltijd wilt verwijderen?')) return;
+    const updated = presets.filter((_, i) => i !== index);
+    setPresets(updated);
+    savePresets(updated);
+  };
 
-const handleSaveMeal = (preset) => {
-  const updated = [...presets, preset];
-  setPresets(updated);
-  savePresets(updated);
-};
-  
+  const handleSaveMeal = (preset) => {
+    const updated = [...presets, preset];
+    setPresets(updated);
+    savePresets(updated);
+  };
+
   // ── OFF zoeken ────────────────────────────────────────────────────────────
   const handleOFFSearch = async () => {
     const q = offQuery.trim();
@@ -1038,26 +871,19 @@ const handleSaveMeal = (preset) => {
     const cleans = parsed.map(p => p.clean);
     setModalLabel(cleans.join(', '));
 
-    // Totale tijdslimiet van 15 seconden voor de hele zoekopdracht
     const TOTAL_TIMEOUT_MS = 15000;
     let timedOut = false;
-    const timeoutId = setTimeout(() => {
-      timedOut = true;
-      controller.abort(); // breek alle lopende requests af
-    }, TOTAL_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, TOTAL_TIMEOUT_MS);
 
     try {
       const gevonden = [];
       const mislukt = [];
-      const progressMessages = []; // per term status bijhouden
+      const progressMessages = [];
 
       for (let i = 0; i < cleans.length; i++) {
-        if (signal.aborted) break; // stop als timer is verlopen
-
+        if (signal.aborted) break;
         const { qty } = parsed[i];
         const term = termen[i];
-        
-        // Update voortgang: bezig met deze term
         progressMessages.push(`Bezig met "${term}"...`);
         setOffPhaseMsg(progressMessages.join(' · '));
 
@@ -1075,26 +901,19 @@ const handleSaveMeal = (preset) => {
           mislukt.push(term);
           progressMessages[progressMessages.length - 1] = `"${term}": fout bij ophalen`;
         }
-
-        // Update UI met actuele voortgang
         setOffPhaseMsg(progressMessages.join(' · '));
       }
 
       clearTimeout(timeoutId);
 
-      // Eindmelding
       let errorMsg = mislukt.length
         ? `Niet gevonden: ${mislukt.map(t => `"${t}"`).join(', ')} — controleer de spelling.`
         : '';
-      if (timedOut) {
-        errorMsg = 'Zoekopdracht gestopt na 15 seconden. ' + (errorMsg || '');
-      }
+      if (timedOut) errorMsg = 'Zoekopdracht gestopt na 15 seconden. ' + (errorMsg || '');
 
       setOffResults(gevonden);
       setOffError(errorMsg);
-      if (gevonden.length > 0 || errorMsg) {
-        setShowModal(true);
-      }
+      if (gevonden.length > 0 || errorMsg) setShowModal(true);
     } catch (e) {
       clearTimeout(timeoutId);
       if (e.name === 'AbortError') {
@@ -1112,6 +931,7 @@ const handleSaveMeal = (preset) => {
       setOffPhaseMsg('');
     }
   };
+
   // ── AI beschrijven ────────────────────────────────────────────────────────
   const handleAISearch = async () => {
     const q = aiQuery.trim();
@@ -1151,7 +971,6 @@ const handleSaveMeal = (preset) => {
 
     try {
       const product = await offBarcode(code, signal);
-
       if (product) {
         setOffResults([{ product, qty: null }]);
         setShowModal(true);
@@ -1175,9 +994,8 @@ const handleSaveMeal = (preset) => {
 
   return html`<div>
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
-        ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal}/>`}
+    ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal}/>`}
 
-    <!-- Search Modal -->
     ${showModal && html`
       <${SearchModal}
         results=${offResults}
@@ -1304,12 +1122,13 @@ const handleSaveMeal = (preset) => {
         </div>
 
         <hr class="divider"/>
+
         <!-- Mijn Maaltijden -->
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
             <div class="section-label" style="margin-bottom:0">Mijn maaltijden</div>
             <button onClick=${() => setShowMealBuilder(true)}
-              style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;opacity:1;transition:all .15s"
+              style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;transition:opacity .15s"
               onMouseOver=${e => e.currentTarget.style.opacity = '0.8'}
               onMouseOut=${e => e.currentTarget.style.opacity = '1'}>
               + Nieuwe maaltijd
@@ -1338,7 +1157,8 @@ const handleSaveMeal = (preset) => {
                 </div>`)}
             </div>`}
         </div>
-          <hr class="divider"/>
+
+        <hr class="divider"/>
 
         <!-- Log -->
         ${log.length > 0 && html`
@@ -1395,46 +1215,34 @@ const handleSaveMeal = (preset) => {
             const totalTPM = Object.values(stats.tpm).reduce((a,b)=>a+b,0);
             const totalRPM = Object.values(stats.rpm).reduce((a,b)=>a+b,0);
             const maxRPD = 1500, maxTPM = 1000000, maxRPM = 10;
-
             const barStyle = (used, max) => {
               const pct = Math.min(used / max * 100, 100);
               const over = used >= max;
               return `width:${pct}%;height:100%;background:${over?'var(--danger)':'var(--c)'};border-radius:6px;transition:width .3s`;
             };
-
             return html`
               <div style="margin-bottom:16px">
                 <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
-                  <span>Verzoeken vandaag</span>
-                  <span class="mono">${totalRPD} / ${maxRPD}</span>
+                  <span>Verzoeken vandaag</span><span class="mono">${totalRPD} / ${maxRPD}</span>
                 </div>
-                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
-                  <div style="${barStyle(totalRPD, maxRPD)}"></div>
-                </div>
+                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden"><div style="${barStyle(totalRPD, maxRPD)}"></div></div>
               </div>
               <div style="margin-bottom:16px">
                 <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
-                  <span>Tokens deze minuut</span>
-                  <span class="mono">${totalTPM.toLocaleString()} / ${maxTPM.toLocaleString()}</span>
+                  <span>Tokens deze minuut</span><span class="mono">${totalTPM.toLocaleString()} / ${maxTPM.toLocaleString()}</span>
                 </div>
-                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
-                  <div style="${barStyle(totalTPM, maxTPM)}"></div>
-                </div>
+                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden"><div style="${barStyle(totalTPM, maxTPM)}"></div></div>
               </div>
               <div style="margin-bottom:4px">
                 <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
-                  <span>Verzoeken deze minuut</span>
-                  <span class="mono">${totalRPM} / ${maxRPM}</span>
+                  <span>Verzoeken deze minuut</span><span class="mono">${totalRPM} / ${maxRPM}</span>
                 </div>
-                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
-                  <div style="${barStyle(totalRPM, maxRPM)}"></div>
-                </div>
+                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden"><div style="${barStyle(totalRPM, maxRPM)}"></div></div>
               </div>
               <div style="font-size:10px;color:var(--dim);margin-top:10px;line-height:1.4">
                 Gebaseerd op lokale telling. Limieten kunnen afwijken.<br/>
                 Bij overschrijding schakelt de app over op een ander model.
-              </div>
-            `;
+              </div>`;
           })()}
           <button class="btn" onClick=${() => { rateLimitTracker.reset(); setUsageTick(t => t+1); }}
             style="margin-top:12px;background:var(--dim);color:var(--text);border:1px solid var(--border)">
@@ -1450,9 +1258,7 @@ const handleSaveMeal = (preset) => {
             onInput=${e => setMaxResults(Math.max(1, Math.min(200, Number(e.target.value) || 50)))}
             min="1" max="200" class="field mono"
             style="text-align:center;font-size:16px;font-weight:600"/>
-          <div style="font-size:10px;color:var(--dim);margin-top:6px">
-            Tussen 1 en 200 (standaard 50)
-          </div>
+          <div style="font-size:10px;color:var(--dim);margin-top:6px">Tussen 1 en 200 (standaard 50)</div>
         </div>
       </div>`}
     </div>
