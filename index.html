@@ -855,6 +855,7 @@ function App() {
   const [usageTick, setUsageTick] = useState(0);
   const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 20));
   const [presets, setPresets] = useState(() => loadPresets());
+  const [showMealBuilder, setShowMealBuilder] = useState(false);
 
   const offInputRef = useRef();
   const aiInputRef  = useRef();
@@ -941,6 +942,13 @@ const handleDeletePreset = (index) => {
   setPresets(updated);
   savePresets(updated);
 };
+
+const handleSaveMeal = (preset) => {
+  const updated = [...presets, preset];
+  setPresets(updated);
+  savePresets(updated);
+};
+  
   // ── OFF zoeken ────────────────────────────────────────────────────────────
   const handleOFFSearch = async () => {
     const q = offQuery.trim();
@@ -1095,6 +1103,7 @@ const handleDeletePreset = (index) => {
 
   return html`<div>
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
+        ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal}/>`}
 
     <!-- Search Modal -->
     ${showModal && html`
@@ -1223,15 +1232,15 @@ const handleDeletePreset = (index) => {
         </div>
 
         <hr class="divider"/>
-                <!-- Mijn Maaltijden -->
+        <!-- Mijn Maaltijden -->
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
             <div class="section-label" style="margin-bottom:0">Mijn maaltijden</div>
-            <button onClick=${handleSavePreset} disabled=${log.length === 0}
-              style="background:${log.length === 0 ? 'var(--dim)' : 'var(--p)'};color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;opacity:${log.length === 0 ? '0.4' : '1'};transition:all .15s"
-              onMouseOver=${e => { if(log.length>0) e.currentTarget.style.opacity='0.8' }}
-              onMouseOut=${e => { if(log.length>0) e.currentTarget.style.opacity='1' }}>
-              + Bewaar als maaltijd
+            <button onClick=${() => setShowMealBuilder(true)}
+              style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;opacity:1;transition:all .15s"
+              onMouseOver=${e => e.currentTarget.style.opacity = '0.8'}
+              onMouseOut=${e => e.currentTarget.style.opacity = '1'}>
+              + Nieuwe maaltijd
             </button>
           </div>
           ${presets.length === 0 && html`
