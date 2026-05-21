@@ -273,55 +273,17 @@ const searchALicious = async (q, signal, size = 50) => {
     }
   };
 
-  // Helper om beide APIs parallel te proberen (max 3 seconden per poging)
-  const tryBoth = async (term) => {
-    if (signal.aborted) return;
-    const modernUrl = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(term)}&page_size=${size}&langs=nl`;
-    const fallbackUrl =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=1&action=process&json=1` +
-      `&page_size=${size}&lc=nl` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-
-    const [modernRes, fallbackRes] = await Promise.allSettled([
-      timedFetch(modernUrl, signal, 3000),
-      timedFetch(fallbackUrl, signal, 3000)
-    ]);
-
-    if (modernRes.status === 'fulfilled' && modernRes.value.ok) {
-      try {
-        const data = await modernRes.value.json();
-        const prods = data.products ??
-          data.hits?.map(h => h._source ?? h) ??
-          data.hits?.hits?.map(h => h._source ?? h) ?? [];
-        addProducts(prods);
-      } catch (e) {}
-    }
-    if (fallbackRes.status === 'fulfilled' && fallbackRes.value.ok) {
-      try {
-        const data = await fallbackRes.value.json();
-        if (data.products) addProducts(data.products);
-      } catch (e) {}
-    }
-  };
-
-  // Stap 1: twee snelle pogingen met de hele term
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Maximaal 3 pogingen, stoppen zodra we producten hebben
+  for (let attempt = 0; attempt < 3; attempt++) {
     if (signal.aborted) break;
-    await tryBoth(q);
-    if (allProducts.length > 0) break;
-    if (attempt < 1 && !signal.aborted) await sleep(1000);
-  }
 
-  // Stap 2: als nog niets gevonden, split de term in woorden (≥3 letters)
-  if (allProducts.length === 0 && q.includes(' ')) {
-    const words = q.split(' ').filter(w => w.length >= 3);
-    if (words.length > 1) {
-      // Zoek elk woord parallel, maar stop als signaal wordt geaborteerd
-      const tasks = words.map(word => tryBoth(word));
-      await Promise.allSettled(tasks);
-      // Dubbele producten verwijderen (addProducts hield al rekening met 'seen', dus dat is al in orde)
+    await fetchBothAPIs(q, signal, size, addProducts);
+
+    if (allProducts.length > 0) break; // succes, stop met herkansen
+
+    // Wacht 1,5 seconde voor de volgende poging, tenzij aborted
+    if (attempt < 2 && !signal.aborted) {
+      await sleep(1500);
     }
   }
 
@@ -546,13 +508,14 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
           </div>
 
           <!-- Snelknoppen -->
-          <!-- Snelknoppen (altijd multipliers, basis = portie of 100g) -->
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
-            ${MULTIPLIERS.map(m => {
-              const base = servingGrams || 100;
-              const v = Math.round(base * m);
-              return html`<button onClick=${() => setQty(v)} style=${pillStyle(qty === v)}>×${m} ${servingGrams ? '' : `(${v}g)`}</button>`;
-            })}
+            ${servingGrams
+              ? MULTIPLIERS.map(m => {
+                  const v = Math.round(servingGrams * m);
+                  return html`<button onClick=${() => setQty(v)} style=${pillStyle(qty === v)}>×${m}</button>`;
+                })
+              : QUICK_SIZES.map(s => html`<button onClick=${() => setQty(s)} style=${pillStyle(qty === s)}>${s}g</button>`)
+            }
           </div>
 
           <!-- Macro tags -->
