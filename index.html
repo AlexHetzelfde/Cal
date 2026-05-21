@@ -253,10 +253,18 @@ const rateLimitTracker = {
 };
   
 // ── OFF ───────────────────────────────────────────────────────────────────────
-const timedFetch = (url, signal, ms = 20000) => Promise.race([
-  fetch(url, { signal }),
-  new Promise((_, rej) => setTimeout(() => rej(new Error('Verzoek duurde te lang.')), ms))
-]);
+const timedFetch = (url, signal, ms = 20000) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ms);
+
+  // Combineer de externe signal met onze lokale
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, controller.signal])
+    : controller.signal;
+
+  return fetch(url, { signal: combinedSignal }).finally(() => clearTimeout(timeoutId));
+};
+
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
 
 const searchALicious = async (q, signal, size = 50) => {
@@ -344,6 +352,28 @@ const searchALicious = async (q, signal, size = 50) => {
     }
   }
 
+// Stap 2b – zelfde term zonder taalfilter
+  const tryNoLang = async (term) => {
+    if (signal.aborted) return;
+    const url =
+      `https://world.openfoodfacts.org/cgi/search.pl` +
+      `?search_terms=${encodeURIComponent(term)}` +
+      `&search_simple=1&action=process&json=1` +
+      `&page_size=${size}` +
+      `&fields=product_name,brands,nutriments,serving_size`;
+    try {
+      const res = await timedFetch(url, signal, 2000);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.products) addProducts(data.products);
+      }
+    } catch (e) {}
+  };
+
+  if (allProducts.length === 0 && !signal.aborted) {
+    await tryNoLang(q);
+  }
+  
   // Stap 3 – fuzzy fallback met search_simple=0
   await tryFuzzy(q);
 
