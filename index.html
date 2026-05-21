@@ -297,15 +297,60 @@ const searchALicious = async (q, signal, size = 50) => {
 };
   
 const offBarcode = async (barcode, signal) => {
-  const res = await timedFetch(
-    `https://world.openfoodfacts.org/api/v3/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
-    signal
-  );
-  const data = await res.json();
-  if (data.status === 1 && data.product?.nutriments &&
-      (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
-    return data.product;
+  // Probeer eerst V3 (modernste)
+  try {
+    const res = await timedFetch(
+      `https://world.openfoodfacts.org/api/v3/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
+      signal
+    );
+    const data = await res.json();
+    if (data.status === 1 && data.product?.nutriments &&
+        (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
+      return data.product;
+    }
+  } catch (e) {
+    // ga door naar volgende fallback
   }
+
+  // V2
+  try {
+    const res = await timedFetch(
+      `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
+      signal
+    );
+    const data = await res.json();
+    if (data.status === 1 && data.product?.nutriments &&
+        (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
+      return data.product;
+    }
+  } catch (e) {}
+
+  // V1 (extra toegevoegd)
+  try {
+    const res = await timedFetch(
+      `https://world.openfoodfacts.org/api/v1/product/${barcode}.json`,
+      signal
+    );
+    const data = await res.json();
+    if (data.status === 1 && data.product?.nutriments &&
+        (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
+      return data.product;
+    }
+  } catch (e) {}
+
+  // V0 (alleroudste, als laatste redmiddel)
+  try {
+    const res = await timedFetch(
+      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
+      signal
+    );
+    const data = await res.json();
+    if (data.status === 1 && data.product?.nutriments &&
+        (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
+      return data.product;
+    }
+  } catch (e) {}
+
   return null;
 };
 
