@@ -297,20 +297,20 @@ const searchALicious = async (q, signal, size = 50) => {
 };
   
 const offBarcode = async (barcode, signal) => {
-  // Probeer eerst V3 (modernste)
+  const hasNutriments = (product) => product && product.nutriments;
+  const isValid = (data) =>
+    (data.status === 1 || data.status === 'success' || data.status_verbose === 'product found') &&
+    hasNutriments(data.product);
+
+  // V3
   try {
     const res = await timedFetch(
       `https://world.openfoodfacts.org/api/v3/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
       signal
     );
     const data = await res.json();
-    if (data.status === 1 && data.product?.nutriments &&
-        (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
-      return data.product;
-    }
-  } catch (e) {
-    // ga door naar volgende fallback
-  }
+    if (isValid(data)) return data.product;
+  } catch (e) {}
 
   // V2
   try {
@@ -319,41 +319,32 @@ const offBarcode = async (barcode, signal) => {
       signal
     );
     const data = await res.json();
-    if (data.status === 1 && data.product?.nutriments &&
-        (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
-      return data.product;
-    }
+    if (isValid(data)) return data.product;
   } catch (e) {}
 
-  // V1 (extra toegevoegd)
+  // V1
   try {
     const res = await timedFetch(
       `https://world.openfoodfacts.org/api/v1/product/${barcode}.json`,
       signal
     );
     const data = await res.json();
-    if (data.status === 1 && data.product?.nutriments &&
-        (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
-      return data.product;
-    }
+    if (isValid(data)) return data.product;
   } catch (e) {}
 
-  // V0 (alleroudste, als laatste redmiddel)
+  // V0
   try {
     const res = await timedFetch(
       `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
       signal
     );
     const data = await res.json();
-    if (data.status === 1 && data.product?.nutriments &&
-        (data.product.nutriments['energy-kcal_100g'] != null || data.product.nutriments['energy_100g'] != null)) {
-      return data.product;
-    }
+    // V0 heeft vaak status_verbose
+    if (isValid(data)) return data.product;
   } catch (e) {}
 
   return null;
 };
-
 // ── Ring ──────────────────────────────────────────────────────────────────────
 function Ring({ value, goal, label, color }) {
   const r = 26, c = 2 * Math.PI * r, pct = Math.min(value / goal, 1), over = value > goal;
