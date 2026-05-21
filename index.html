@@ -289,13 +289,47 @@ const timedFetch = (url, signal, ms = 20000) => {
 
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
 
+const SEARCH_CACHE_KEY = 'ct_search_cache';
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 uur
+
+const getCachedResults = (term) => {
+  try {
+    const cache = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || '{}');
+    const entry = cache[term.toLowerCase()];
+    if (!entry) return null;
+    if (Date.now() - entry.ts > CACHE_TTL_MS) return null;
+    return entry.results;
+  } catch { return null; }
+};
+
+const setCachedResults = (term, results) => {
+  try {
+    const cache = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || '{}');
+    cache[term.toLowerCase()] = { results, ts: Date.now() };
+    localStorage.setItem(SEARCH_CACHE_KEY, JSON.stringify(cache));
+  } catch {}
+};
+
+const NL_EN = {
+  walnoten:'walnuts', amandelen:'almonds', hazelnoten:'hazelnuts',
+  cashewnoten:'cashews', pindas:'peanuts', rozijnen:'raisins',
+  havermout:'oatmeal', kwark:'quark', melk:'milk', boter:'butter',
+  kaas:'cheese', eieren:'eggs', kip:'chicken', rijst:'rice',
+  brood:'bread', honing:'honey', suiker:'sugar', bloem:'flour',
+  aardappelen:'potatoes', tomaten:'tomatoes', uien:'onions',
+  wortelen:'carrots', spinazie:'spinach', zalm:'salmon', tonijn:'tuna',
+  chocolade:'chocolate', noten:'nuts', spek:'bacon', worst:'sausage'
+};
+
 const searchALicious = async (q, signal, size = 50) => {
+  const cached = getCachedResults(q);
+if (cached) return cached;
   const allProducts = [];
   const seen = new Set();
 
   const addProducts = (list) => {
     for (const p of list) {
-      if (!p || !p.product_name) continue;
+      if (!p || !p.product_name || !p.nutriments) continue;
       const key = (p.product_name + (p.brands || '')).toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
@@ -306,37 +340,24 @@ const searchALicious = async (q, signal, size = 50) => {
   // Eén snelle ronde met beide API's (max 2 seconden)
   const tryBoth = async (term) => {
     if (signal.aborted) return;
-    const modernUrl = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(term)}&page_size=${size}`;
-    const fallbackUrl =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=1&action=process&json=1` +
-      `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-
-    const [modernRes, fallbackRes] = await Promise.allSettled([
-      timedFetch(modernUrl, signal, 2000),
-      timedFetch(fallbackUrl, signal, 2000)
+    const nlUrl = `https://nl.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&search_simple=1&action=process&json=1&page_size=${size}&fields=product_name,brands,nutriments,serving_size`;
+const worldUrl = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&search_simple=1&action=process&json=1&page_size=${size}&fields=product_name,brands,nutriments,serving_size`;
+const [nlRes, worldRes] = await Promise.allSettled([
+  timedFetch(nlUrl, signal, 4000),
+  timedFetch(worldUrl, signal, 4000)
     ]);
 
-    if (modernRes.status === 'fulfilled' && modernRes.value.ok) {
-      try {
-        const data = await modernRes.value.json();
-        const prods = data.products ??
-          data.hits?.map(h => h._source ?? h) ??
-          data.hits?.hits?.map(h => h._source ?? h) ?? [];
-        addProducts(prods);
-      } catch (e) {}
+for (const res of [nlRes, worldRes]) {
+      if (res.status === 'fulfilled' && res.value.ok) {
+        try { 
+          const data = await res.value.json(); 
+          if (data.products) addProducts(data.products); 
+        } catch {}
+      }
     }
-    if (fallbackRes.status === 'fulfilled' && fallbackRes.value.ok) {
-      try {
-        const data = await fallbackRes.value.json();
-        if (data.products) addProducts(data.products);
-      } catch (e) {}
-    }
-  };
+  };  // ← deze sluit tryBoth af
 
-  // Fuzzy ronde met search_simple=0 (minder strikt, vindt ook 'walnoten')
+  // Fuzzy ronde met search_simple=0
   const tryFuzzy = async (term) => {
     if (signal.aborted) return;
     const fuzzyUrl =
@@ -356,11 +377,11 @@ const searchALicious = async (q, signal, size = 50) => {
   };
 
   // Stap 1 – twee pogingen met de volledige term
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     if (signal.aborted) break;
     await tryBoth(q);
     if (allProducts.length > 0) break;
-    if (attempt < 1 && !signal.aborted) await sleep(800);
+    if (allProducts.length === 0 && attempt < 3 && !signal.aborted) await sleep(800 * (attempt + 1));
   }
 
   if (allProducts.length > 0 || signal.aborted) return allProducts;
@@ -370,6 +391,7 @@ const searchALicious = async (q, signal, size = 50) => {
     const words = q.split(' ').filter(w => w.length >= 3);
     if (words.length > 1) {
       await Promise.allSettled(words.map(w => tryBoth(w)));
+      if (allProducts.length > 0) setCachedResults(q, allProducts);
       if (allProducts.length > 0) return allProducts;
     }
   }
@@ -417,7 +439,16 @@ const searchALicious = async (q, signal, size = 50) => {
   // Stap 3 – fuzzy fallback zonder taalfilter
   await tryFuzzyNoLang(q);
 
-  return allProducts;
+if (allProducts.length === 0 && !signal.aborted) {
+  const words = q.toLowerCase().split(' ');
+  const translated = words.map(w => NL_EN[w] || w).join(' ');
+  if (translated !== q.toLowerCase()) {
+    await tryBoth(translated);
+  }
+}
+
+if (allProducts.length > 0) setCachedResults(q, allProducts);
+return allProducts;
 };
 
 const offBarcode = async (barcode, signal) => {
@@ -798,6 +829,7 @@ function MealBuilderModal({ onClose, onSave }) {
     try {
       const gevonden = [];
       const mislukt = [];
+      let serverError = false;
       for (let i = 0; i < cleans.length; i++) {
         if (signal.aborted) break;
         const { qty } = parsed[i];
@@ -1049,7 +1081,8 @@ const handleSaveMeal = (preset) => {
     try {
       const gevonden = [];
       const mislukt = [];
-      const progressMessages = []; // per term status bijhouden
+      const progressMessages = [];
+      let serverError = false;
 
       for (let i = 0; i < cleans.length; i++) {
         if (signal.aborted) break; // stop als timer is verlopen
@@ -1072,9 +1105,11 @@ const handleSaveMeal = (preset) => {
           }
         } catch (e) {
           if (e.name === 'AbortError') break;
+          serverError = true;
           mislukt.push(term);
           progressMessages[progressMessages.length - 1] = `"${term}": fout bij ophalen`;
         }
+  
 
         // Update UI met actuele voortgang
         setOffPhaseMsg(progressMessages.join(' · '));
@@ -1084,8 +1119,10 @@ const handleSaveMeal = (preset) => {
 
       // Eindmelding
       let errorMsg = mislukt.length
-        ? `Niet gevonden: ${mislukt.map(t => `"${t}"`).join(', ')} — controleer de spelling.`
-        : '';
+  ? serverError
+    ? `Server tijdelijk niet beschikbaar voor: ${mislukt.map(t=>`"${t}"`).join(', ')} — probeer opnieuw.`
+    : `Niet gevonden: ${mislukt.map(t=>`"${t}"`).join(', ')} — controleer de spelling.`
+  : '';
       if (timedOut) {
         errorMsg = 'Zoekopdracht gestopt na 15 seconden. ' + (errorMsg || '');
       }
