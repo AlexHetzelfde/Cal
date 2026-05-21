@@ -266,6 +266,7 @@ const searchALicious = async (q, signal, size = 50) => {
   const addProducts = (list) => {
     for (const p of list) {
       if (!p || !p.product_name) continue;
+      // Uniek op productnaam + merk
       const key = (p.product_name + (p.brands || '')).toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
@@ -273,64 +274,47 @@ const searchALicious = async (q, signal, size = 50) => {
     }
   };
 
-  // Maximaal 3 pogingen, stoppen zodra we producten hebben
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (signal.aborted) break;
-
-    await fetchBothAPIs(q, signal, size, addProducts);
-
-    if (allProducts.length > 0) break; // succes, stop met herkansen
-
-    // Wacht 1,5 seconde voor de volgende poging, tenzij aborted
-    if (attempt < 2 && !signal.aborted) {
-      await sleep(1500);
-    }
-  }
-
-  return allProducts;
-};
-
-// Hulpfunctie die beide API's parallel aanroept
-const fetchBothAPIs = async (q, signal, size, addProducts) => {
-  // Beide API's parallel starten voor snelheid
-  const modernUrl = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(q.trim())}&page_size=${size}&langs=nl`;
-  const fallbackUrl =
-    `https://world.openfoodfacts.org/cgi/search.pl` +
-    `?search_terms=${encodeURIComponent(q.trim())}` +
-    `&search_simple=1` +
-    `&action=process` +
-    `&json=1` +
-    `&page_size=${size}` +
-    `&lc=nl` +
-    `&fields=product_name,brands,nutriments,serving_size`;
-
-  const [modernRes, fallbackRes] = await Promise.allSettled([
-    timedFetch(modernUrl, signal, 3000),
-    timedFetch(fallbackUrl, signal, 3000)
-  ]);
-
-  // Moderne API verwerken
-  if (modernRes.status === 'fulfilled' && modernRes.value.ok) {
-    try {
-      const data = await modernRes.value.json();
+  // 1. Moderne search API (altijd proberen, met kortere timeout)
+  try {
+    const url = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(q.trim())}&page_size=${size}&langs=nl`;
+    const res = await timedFetch(url, signal, 5000); // 5 seconden timeout per request
+    if (res.ok) {
+      const data = await res.json();
       const products =
         data.products ??
         data.hits?.map(h => h._source ?? h) ??
         data.hits?.hits?.map(h => h._source ?? h) ??
         [];
       addProducts(products);
-    } catch (e) { /* negeren */ }
+    }
+  } catch (e) {
+    // Moderne API faalt, we gaan door naar de oude
   }
 
-  // Oude API verwerken
-  if (fallbackRes.status === 'fulfilled' && fallbackRes.value.ok) {
-    try {
-      const data = await fallbackRes.value.json();
+  // 2. Oude V1 API (altijd proberen, als aanvulling)
+  try {
+    const fallbackUrl =
+      `https://world.openfoodfacts.org/cgi/search.pl` +
+      `?search_terms=${encodeURIComponent(q.trim())}` +
+      `&search_simple=1` +
+      `&action=process` +
+      `&json=1` +
+      `&page_size=${size}` +
+      `&lc=nl` +
+      `&fields=product_name,brands,nutriments,serving_size`;
+
+    const res = await timedFetch(fallbackUrl, signal, 5000);
+    if (res.ok) {
+      const data = await res.json();
       if (data.products) {
         addProducts(data.products);
       }
-    } catch (e) { /* negeren */ }
+    }
+  } catch (e) {
+    // Beide kunnen falen, maar we retourneren wat we hebben
   }
+
+  return allProducts; // kan leeg zijn, dan toont handleOFFSearch "niet gevonden"
 };
   
 const offBarcode = async (barcode, signal) => {
@@ -792,45 +776,51 @@ const handleDeletePreset = (index) => {
     const cleans = parsed.map(p => p.clean);
     setModalLabel(cleans.join(', '));
 
+    // Totale tijdslimiet van 15 seconden voor de hele zoekopdracht
     const TOTAL_TIMEOUT_MS = 15000;
     let timedOut = false;
     const timeoutId = setTimeout(() => {
       timedOut = true;
-      controller.abort();
+      controller.abort(); // breek alle lopende requests af
     }, TOTAL_TIMEOUT_MS);
 
     try {
       const gevonden = [];
       const mislukt = [];
-      const progressMessages = [];
+      const progressMessages = []; // per term status bijhouden
 
       for (let i = 0; i < cleans.length; i++) {
-        if (signal.aborted) break;
+        if (signal.aborted) break; // stop als timer is verlopen
+
         const { qty } = parsed[i];
         const term = termen[i];
-
-        progressMessages.push(`Zoeken naar "${term}"...`);
+        
+        // Update voortgang: bezig met deze term
+        progressMessages.push(`Bezig met "${term}"...`);
         setOffPhaseMsg(progressMessages.join(' · '));
 
-        let prods = [];
         try {
-          prods = await searchALicious(cleans[i], signal, maxResults);
+          const prods = await searchALicious(cleans[i], signal, maxResults);
+          if (prods.length > 0) {
+            gevonden.push(...prods.map(product => ({ product, qty })));
+            progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} product(en) gevonden`;
+          } else {
+            mislukt.push(term);
+            progressMessages[progressMessages.length - 1] = `"${term}": niets gevonden`;
+          }
         } catch (e) {
-          // searchALicious zou nu geen fouten meer moeten gooien, maar voor de zekerheid
+          if (e.name === 'AbortError') break;
+          mislukt.push(term);
+          progressMessages[progressMessages.length - 1] = `"${term}": fout bij ophalen`;
         }
 
-        if (prods.length > 0) {
-          gevonden.push(...prods.map(product => ({ product, qty })));
-          progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} gevonden`;
-        } else {
-          mislukt.push(term);
-          progressMessages[progressMessages.length - 1] = `"${term}": niets gevonden`;
-        }
+        // Update UI met actuele voortgang
         setOffPhaseMsg(progressMessages.join(' · '));
       }
 
       clearTimeout(timeoutId);
 
+      // Eindmelding
       let errorMsg = mislukt.length
         ? `Niet gevonden: ${mislukt.map(t => `"${t}"`).join(', ')} — controleer de spelling.`
         : '';
@@ -845,7 +835,10 @@ const handleDeletePreset = (index) => {
       }
     } catch (e) {
       clearTimeout(timeoutId);
-      if (e.name !== 'AbortError') {
+      if (e.name === 'AbortError') {
+        // Timer afgelopen, toon wat we tot nu toe hebben (al gedaan in de loop)
+        // Als de loop al voorbij was, gebeurt hier niets speciaals.
+      } else {
         setOffError('Fout: ' + (e.message || 'Probeer opnieuw.'));
         setShowModal(true);
       }
@@ -855,7 +848,6 @@ const handleDeletePreset = (index) => {
       setOffPhaseMsg('');
     }
   };
-  
   // ── AI beschrijven ────────────────────────────────────────────────────────
   const handleAISearch = async () => {
     const q = aiQuery.trim();
