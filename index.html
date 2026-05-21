@@ -251,6 +251,28 @@ const rateLimitTracker = {
     setUsageLog([]);
   }
 };
+
+// Polyfill voor oudere Safari (< 17.4)
+if (!AbortSignal.any) {
+  AbortSignal.any = function(...signals) {
+    const controller = new AbortController();
+    const onAbort = () => {
+      controller.abort();
+      for (const s of signals) {
+        if (s) s.removeEventListener('abort', onAbort);
+      }
+    };
+    for (const s of signals) {
+      if (!s) continue;
+      if (s.aborted) {
+        controller.abort();
+        break;
+      }
+      s.addEventListener('abort', onAbort, { once: true });
+    }
+    return controller.signal;
+  };
+}
   
 // ── OFF ───────────────────────────────────────────────────────────────────────
 const timedFetch = (url, signal, ms = 20000) => {
@@ -284,12 +306,12 @@ const searchALicious = async (q, signal, size = 50) => {
   // Eén snelle ronde met beide API's (max 2 seconden)
   const tryBoth = async (term) => {
     if (signal.aborted) return;
-    const modernUrl = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(term)}&page_size=${size}&langs=nl`;
+    const modernUrl = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(term)}&page_size=${size}`;
     const fallbackUrl =
       `https://world.openfoodfacts.org/cgi/search.pl` +
       `?search_terms=${encodeURIComponent(term)}` +
       `&search_simple=1&action=process&json=1` +
-      `&page_size=${size}&lc=nl` +
+      `&page_size=${size}` +
       `&fields=product_name,brands,nutriments,serving_size`;
 
     const [modernRes, fallbackRes] = await Promise.allSettled([
@@ -321,7 +343,7 @@ const searchALicious = async (q, signal, size = 50) => {
       `https://world.openfoodfacts.org/cgi/search.pl` +
       `?search_terms=${encodeURIComponent(term)}` +
       `&search_simple=0&action=process&json=1` +
-      `&page_size=${size}&lc=nl` +
+      `&page_size=${size}` +
       `&fields=product_name,brands,nutriments,serving_size`;
 
     try {
