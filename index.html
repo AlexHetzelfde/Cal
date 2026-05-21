@@ -290,21 +290,7 @@ const searchALicious = async (q, signal, size = 50) => {
   return allProducts;
 };
 
-  // Eerste poging: moderne API + oude API
-  await fetchBothAPIs(q, signal, size, addProducts);
-
-  // Als niets gevonden, wacht 1 seconde en probeer opnieuw
-  if (allProducts.length === 0 && !signal.aborted) {
-    await sleep(1000);
-    if (!signal.aborted) {
-      await fetchBothAPIs(q, signal, size, addProducts);
-    }
-  }
-
-  return allProducts;
-};
-
-// Hulpfunctie die beide API's aanroept
+// Hulpfunctie die beide API's parallel aanroept
 const fetchBothAPIs = async (q, signal, size, addProducts) => {
   // Beide API's parallel starten voor snelheid
   const modernUrl = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(q.trim())}&page_size=${size}&langs=nl`;
