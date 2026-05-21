@@ -251,28 +251,6 @@ const rateLimitTracker = {
     setUsageLog([]);
   }
 };
-
-// Polyfill voor oudere Safari (< 17.4)
-if (!AbortSignal.any) {
-  AbortSignal.any = function(...signals) {
-    const controller = new AbortController();
-    const onAbort = () => {
-      controller.abort();
-      for (const s of signals) {
-        if (s) s.removeEventListener('abort', onAbort);
-      }
-    };
-    for (const s of signals) {
-      if (!s) continue;
-      if (s.aborted) {
-        controller.abort();
-        break;
-      }
-      s.addEventListener('abort', onAbort, { once: true });
-    }
-    return controller.signal;
-  };
-}
   
 // ── OFF ───────────────────────────────────────────────────────────────────────
 const timedFetch = (url, signal, ms = 20000) => {
@@ -306,12 +284,12 @@ const searchALicious = async (q, signal, size = 50) => {
   // Eén snelle ronde met beide API's (max 2 seconden)
   const tryBoth = async (term) => {
     if (signal.aborted) return;
-    const modernUrl = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(term)}&page_size=${size}`;
+    const modernUrl = `https://search.openfoodfacts.org/api/v2/search?q=${encodeURIComponent(term)}&page_size=${size}&langs=nl`;
     const fallbackUrl =
       `https://world.openfoodfacts.org/cgi/search.pl` +
       `?search_terms=${encodeURIComponent(term)}` +
       `&search_simple=1&action=process&json=1` +
-      `&page_size=${size}` +
+      `&page_size=${size}&lc=nl` +
       `&fields=product_name,brands,nutriments,serving_size`;
 
     const [modernRes, fallbackRes] = await Promise.allSettled([
@@ -340,23 +318,19 @@ const searchALicious = async (q, signal, size = 50) => {
   const tryFuzzy = async (term) => {
     if (signal.aborted) return;
     const fuzzyUrl =
-  `https://world.openfoodfacts.org/cgi/search.pl` +
-  `?search_terms=${encodeURIComponent(term)}` +
-  `&search_simple=0&action=process&json=1` +
-  `&page_size=${size}` +
-  `&fields=product_name,brands,nutriments,serving_size`;
-    console.log('tryFuzzy aangeroepen met', term, fuzzyUrl);
+      `https://world.openfoodfacts.org/cgi/search.pl` +
+      `?search_terms=${encodeURIComponent(term)}` +
+      `&search_simple=0&action=process&json=1` +
+      `&page_size=${size}&lc=nl` +
+      `&fields=product_name,brands,nutriments,serving_size`;
+
     try {
       const res = await timedFetch(fuzzyUrl, signal, 2000);
-      console.log('tryFuzzy response ok:', res.ok, 'status:', res.status);
       if (res.ok) {
         const data = await res.json();
-        console.log('tryFuzzy data.products length:', data?.products?.length);
         if (data.products) addProducts(data.products);
       }
-    } catch (e) {
-      console.error('tryFuzzy error:', e);
-    }
+    } catch (e) {}
   };
 
   // Stap 1 – twee pogingen met de volledige term
@@ -378,14 +352,101 @@ const searchALicious = async (q, signal, size = 50) => {
     }
   }
 
-  // Stap 3 – fuzzy fallback (search_simple=0) als er nog niets gevonden is
+// Stap 2b – zelfde term zonder taalfilter
+  const tryNoLang = async (term) => {
+    if (signal.aborted) return;
+    const url =
+      `https://world.openfoodfacts.org/cgi/search.pl` +
+      `?search_terms=${encodeURIComponent(term)}` +
+      `&search_simple=1&action=process&json=1` +
+      `&page_size=${size}` +
+      `&fields=product_name,brands,nutriments,serving_size`;
+    try {
+      const res = await timedFetch(url, signal, 2000);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.products) addProducts(data.products);
+      }
+    } catch (e) {}
+  };
+
   if (allProducts.length === 0 && !signal.aborted) {
-    await tryFuzzy(q);
+    await tryNoLang(q);
   }
-console.log('searchALicious resultaten voor', q, allProducts.length, allProducts);
+  
+  // Stap 3 – fuzzy fallback met search_simple=0
+  const tryFuzzyNoLang = async (term) => {
+    if (signal.aborted) return;
+    const url =
+      `https://world.openfoodfacts.org/cgi/search.pl` +
+      `?search_terms=${encodeURIComponent(term)}` +
+      `&search_simple=0&action=process&json=1` +
+      `&page_size=${size}` +
+      `&fields=product_name,brands,nutriments,serving_size`;
+    try {
+      const res = await timedFetch(url, signal, 2000);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.products) addProducts(data.products);
+      }
+    } catch (e) {}
+  };
+
+  // Stap 3 – fuzzy fallback zonder taalfilter
+  await tryFuzzyNoLang(q);
+
   return allProducts;
 };
-  
+
+const offBarcode = async (barcode, signal) => {
+  const hasNutriments = (product) => product && product.nutriments;
+  const isValid = (data) =>
+    (data.status === 1 || data.status === 'success' || data.status_verbose === 'product found') &&
+    hasNutriments(data.product);
+
+  // V3
+  try {
+    const res = await timedFetch(
+      `https://world.openfoodfacts.org/api/v3/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
+      signal
+    );
+    const data = await res.json();
+    if (isValid(data)) return data.product;
+  } catch (e) {}
+
+  // V2
+  try {
+    const res = await timedFetch(
+      `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
+      signal
+    );
+    const data = await res.json();
+    if (isValid(data)) return data.product;
+  } catch (e) {}
+
+  // V1
+  try {
+    const res = await timedFetch(
+      `https://world.openfoodfacts.org/api/v1/product/${barcode}.json`,
+      signal
+    );
+    const data = await res.json();
+    if (isValid(data)) return data.product;
+  } catch (e) {}
+
+  // V0
+  try {
+    const res = await timedFetch(
+      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
+      signal
+    );
+    const data = await res.json();
+    // V0 heeft vaak status_verbose
+    if (isValid(data)) return data.product;
+  } catch (e) {}
+
+  return null;
+};
 // ── Ring ──────────────────────────────────────────────────────────────────────
 function Ring({ value, goal, label, color }) {
   const r = 26, c = 2 * Math.PI * r, pct = Math.min(value / goal, 1), over = value > goal;
