@@ -375,29 +375,11 @@ const searchALicious = async (q, signal, size = 50) => {
   }
   
   // Stap 3 – fuzzy fallback met search_simple=0
-  const tryFuzzyNoLang = async (term) => {
-    if (signal.aborted) return;
-    const url =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=0&action=process&json=1` +
-      `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-    try {
-      const res = await timedFetch(url, signal, 2000);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) addProducts(data.products);
-      }
-    } catch (e) {}
-  };
-
-  // Stap 3 – fuzzy fallback zonder taalfilter
-  await tryFuzzyNoLang(q);
+  await tryFuzzy(q);
 
   return allProducts;
 };
-
+  
 const offBarcode = async (barcode, signal) => {
   const hasNutriments = (product) => product && product.nutriments;
   const isValid = (data) =>
@@ -1076,10 +1058,8 @@ const handleSaveMeal = (preset) => {
     } catch (e) {
       clearTimeout(timeoutId);
       if (e.name === 'AbortError') {
-        if (timedOut) {
-          setOffError('Zoekopdracht gestopt na 15 seconden. Probeer een specifiekere zoekterm.');
-          setShowModal(true);
-        }
+        // Timer afgelopen, toon wat we tot nu toe hebben (al gedaan in de loop)
+        // Als de loop al voorbij was, gebeurt hier niets speciaals.
       } else {
         setOffError('Fout: ' + (e.message || 'Probeer opnieuw.'));
         setShowModal(true);
