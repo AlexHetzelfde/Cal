@@ -341,7 +341,7 @@ const searchALicious = async (q, signal, size = 50) => {
   const doSearch = async (term, extra = '') => {
     if (signal?.aborted) return;
     const url =
-      `https://search.openfoodfacts.org/search` +
+      `https://off-proxy.mightygamer500.workers.dev/search` +
       `?q=${encodeURIComponent(term)}` +
       `&fields=product_name,brands,nutriments,serving_size` +
       `&page_size=${size}` +
