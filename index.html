@@ -337,6 +337,7 @@ const NL_EN = {
 };
 
 function scoreProduct(product, query) {
+  if (!product.nutriments) return -1;   // ← deze regel toevoegen
   const n = product.nutriments;
   const heeftMacros =
     getKcal100g(n) > 0 &&
@@ -406,7 +407,7 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
   if (hits.length) allProducts = [...allProducts, ...hits];
 
   // ── Strategie 2: per woord (fallback) ──────────────────────────────────────
-  if (allProducts.filter(heeftMacros).length < 3 && !signal?.aborted) {
+  if (false) {
     for (const w of words) {
       const extraHits = await fetchSearch(w);
       if (extraHits.length) allProducts = [...allProducts, ...extraHits];
