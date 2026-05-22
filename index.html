@@ -346,16 +346,20 @@ function scoreProduct(product, query) {
   if (!heeftMacros) return -1;
 
   const naam = (product.product_name || '').toLowerCase();
-  const merk = (product.brands || '').toLowerCase();
+  const merk = Array.isArray(product.brands)
+    ? product.brands.join(', ').toLowerCase()
+    : (product.brands || '').toLowerCase();
+  const combined = naam + ' ' + merk;
   const woorden = query.toLowerCase().split(' ').filter(w => w.length >= 2);
+  const treffers = woorden.filter(w => combined.includes(w));
 
-  // Filter: product moet minstens de helft van de zoekwoorden bevatten
-  const treffers = woorden.filter(w => naam.includes(w) || merk.includes(w));
-  if (treffers.length < 1) return -1;
+  const minMatches = woorden.length >= 3 ? 2 : 1;
+  if (treffers.length < minMatches) return -1;
 
   let score = treffers.length * 10;
   if (naam === query.toLowerCase()) score += 50;
   else if (naam.startsWith(query.toLowerCase())) score += 30;
+  if (merk && woorden.some(w => merk.includes(w))) score += 15;
   if (product.serving_size) score += 5;
 
   return score;
@@ -412,8 +416,10 @@ if (words.length >= 2) {
     const matched = hits
       .map(p => Array.isArray(p.brands) ? { ...p, brands: p.brands.join(', ') } : p)
       .filter(p => {
-        if (!p.product_name || !p.nutriments) return false;
-        return (p.brands || '').toLowerCase().includes(brandCandidate);
+       if (!p.product_name || !p.nutriments) return false;
+        const merk = (p.brands || '').toLowerCase();
+        const naam = (p.product_name || '').toLowerCase();
+        return merk.includes(brandCandidate) && restWords.some(w => naam.includes(w));
       });
 
     if (matched.length > 0) {
