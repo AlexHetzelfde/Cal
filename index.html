@@ -366,7 +366,7 @@ const searchALicious = async (q, signal, size = 50, onRequest, global = false) =
     const url =
       `https://off-proxy.mightygamer500.workers.dev/search` +
       `?q=${encodeURIComponent(term)}` +
-      `&fields=product_name,brands,nutriments,serving_size,countries_tags`
+      `&fields=product_name,brands,nutriments,serving_size,countries_tags` + 
       `&page_size=${size}` +
       `&langs=nl,en` +
       `${global ? '' : '&countries_tags=en:netherlands'}` +
