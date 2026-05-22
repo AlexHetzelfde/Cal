@@ -323,12 +323,13 @@ const NL_EN = {
 
 const searchALicious = async (q, signal, size = 50) => {
   const cached = getCachedResults(q);
-if (cached) return cached;
-  const allProducts = [];
-  const seen = new Set();
+  if (cached) return cached;
 
-  const addProducts = (list) => {
-    for (const p of list) {
+  const seen = new Set();
+  const allProducts = [];
+
+  const addProducts = (hits) => {
+    for (const p of hits) {
       if (!p || !p.product_name || !p.nutriments) continue;
       const key = (p.product_name + (p.brands || '')).toLowerCase();
       if (seen.has(key)) continue;
@@ -337,118 +338,41 @@ if (cached) return cached;
     }
   };
 
-  // Eén snelle ronde met beide API's (max 2 seconden)
-  const tryBoth = async (term) => {
-    if (signal.aborted) return;
-    const nlUrl = `https://nl.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&search_simple=1&action=process&json=1&page_size=${size}&fields=product_name,brands,nutriments,serving_size`;
-const worldUrl = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&search_simple=1&action=process&json=1&page_size=${size}&fields=product_name,brands,nutriments,serving_size`;
-const [nlRes, worldRes] = await Promise.allSettled([
-  timedFetch(nlUrl, signal, 4000),
-  timedFetch(worldUrl, signal, 4000)
-    ]);
-
-for (const res of [nlRes, worldRes]) {
-      if (res.status === 'fulfilled' && res.value.ok) {
-        try { 
-          const data = await res.value.json(); 
-          if (data.products) addProducts(data.products); 
-        } catch {}
-      }
-    }
-  };  // ← deze sluit tryBoth af
-
-  // Fuzzy ronde met search_simple=0
-  const tryFuzzy = async (term) => {
-    if (signal.aborted) return;
-    const fuzzyUrl =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=0&action=process&json=1` +
+  const doSearch = async (term, extra = '') => {
+    if (signal?.aborted) return;
+    const url =
+      `https://search.openfoodfacts.org/search` +
+      `?q=${encodeURIComponent(term)}` +
+      `&fields=product_name,brands,nutriments,serving_size` +
       `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-
+      `&langs=nl,en` +
+      extra;
     try {
-      const res = await timedFetch(fuzzyUrl, signal, 2000);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) addProducts(data.products);
-      }
+      const res = await timedFetch(url, signal, 6000);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.hits) addProducts(data.hits);
     } catch (e) {}
   };
 
-  // Stap 1 – twee pogingen met de volledige term
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (signal.aborted) break;
-    await tryBoth(q);
-    if (allProducts.length > 0) break;
-    if (allProducts.length === 0 && attempt < 3 && !signal.aborted) await sleep(800 * (attempt + 1));
-  }
+  // Stap 1 – directe zoekopdracht
+  await doSearch(q);
 
-  if (allProducts.length > 0 || signal.aborted) return allProducts;
-
-  // Stap 2 – meerdere woorden? Splits en zoek elk woord apart
-  if (q.includes(' ')) {
+  // Stap 2 – meerdere woorden: ook per woord zoeken als niets gevonden
+  if (allProducts.length === 0 && q.includes(' ') && !signal?.aborted) {
     const words = q.split(' ').filter(w => w.length >= 3);
-    if (words.length > 1) {
-      await Promise.allSettled(words.map(w => tryBoth(w)));
-      if (allProducts.length > 0) setCachedResults(q, allProducts);
-      if (allProducts.length > 0) return allProducts;
-    }
+    await Promise.allSettled(words.map(w => doSearch(w)));
   }
 
-// Stap 2b – zelfde term zonder taalfilter
-  const tryNoLang = async (term) => {
-    if (signal.aborted) return;
-    const url =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=1&action=process&json=1` +
-      `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-    try {
-      const res = await timedFetch(url, signal, 2000);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) addProducts(data.products);
-      }
-    } catch (e) {}
-  };
-
-  if (allProducts.length === 0 && !signal.aborted) {
-    await tryNoLang(q);
+  // Stap 3 – Nederlandse vertaling als fallback
+  if (allProducts.length === 0 && !signal?.aborted) {
+    const words = q.toLowerCase().split(' ');
+    const translated = words.map(w => NL_EN[w] || w).join(' ');
+    if (translated !== q.toLowerCase()) await doSearch(translated);
   }
-  
-  // Stap 3 – fuzzy fallback met search_simple=0
-  const tryFuzzyNoLang = async (term) => {
-    if (signal.aborted) return;
-    const url =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&search_simple=0&action=process&json=1` +
-      `&page_size=${size}` +
-      `&fields=product_name,brands,nutriments,serving_size`;
-    try {
-      const res = await timedFetch(url, signal, 2000);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.products) addProducts(data.products);
-      }
-    } catch (e) {}
-  };
 
-  // Stap 3 – fuzzy fallback zonder taalfilter
-  await tryFuzzyNoLang(q);
-
-if (allProducts.length === 0 && !signal.aborted) {
-  const words = q.toLowerCase().split(' ');
-  const translated = words.map(w => NL_EN[w] || w).join(' ');
-  if (translated !== q.toLowerCase()) {
-    await tryBoth(translated);
-  }
-}
-
-if (allProducts.length > 0) setCachedResults(q, allProducts);
-return allProducts;
+  if (allProducts.length > 0) setCachedResults(q, allProducts);
+  return allProducts;
 };
 
 const offBarcode = async (barcode, signal) => {
