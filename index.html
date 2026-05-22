@@ -369,14 +369,16 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
   const allProducts = [];
 
   const addProducts = (hits) => {
-    for (const p of hits) {
-      if (!p || !p.product_name || !p.nutriments) continue;
-      const key = (p.product_name + (p.brands || '')).toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      allProducts.push(p);
-    }
-  };
+  for (let p of hits) {
+    if (!p || !p.product_name || !p.nutriments) continue;
+    // brands kan een array zijn vanuit de API
+    if (Array.isArray(p.brands)) p = { ...p, brands: p.brands.join(', ') };
+    const key = (p.product_name + (p.brands || '')).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    allProducts.push(p);
+  }
+};
 
   const fetchSearch = async (term) => {
     if (signal?.aborted) return [];
@@ -399,28 +401,27 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
   const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
 
   // ── Strategie 1: merk-eerst ──────────────────────────────────────────────
-  // Voor elke zoekterm probeer je elk woord als merknaam.
-  // Zoek op dat woord, en filter de hits client-side op de overige woorden.
-  // Zo werkt het voor elk merk automatisch: Melkan, Campina, Optimel, etc.
-  if (words.length >= 2) {
-    for (const brandCandidate of words) {
-      if (signal?.aborted) break;
-      const restWords = words.filter(w => w !== brandCandidate);
+ // Strategie 1: zoek op productnaam-woorden, filter client-side op merk
+if (words.length >= 2) {
+  for (const brandCandidate of words) {
+    if (signal?.aborted) break;
+    const restWords = words.filter(w => w !== brandCandidate);
 
-      const hits = await fetchSearch(brandCandidate);
+    const hits = await fetchSearch(restWords.join(' '));
 
-      const matched = hits.filter(p => {
-        const naam = (p.product_name || '').toLowerCase();
-        const merk = (p.brands || '').toLowerCase();
-        return restWords.every(w => naam.includes(w) || merk.includes(w));
+    const matched = hits
+      .map(p => Array.isArray(p.brands) ? { ...p, brands: p.brands.join(', ') } : p)
+      .filter(p => {
+        if (!p.product_name || !p.nutriments) return false;
+        return (p.brands || '').toLowerCase().includes(brandCandidate);
       });
 
-      if (matched.length > 0) {
-        addProducts(matched);
-        break; // merk gevonden + producten gematcht, klaar
-      }
+    if (matched.length > 0) {
+      addProducts(matched);
+      break;
     }
   }
+}
 
   // ── Strategie 2: directe zoekopdracht (fallback) ─────────────────────────
   if (allProducts.length === 0 && !signal?.aborted) {
