@@ -366,24 +366,14 @@ function scoreProduct(product, query) {
 }
 
 const searchALicious = async (q, signal, size = 50, onRequest) => {
-  const cached = getCachedResults(q);
-  if (cached) return cached;
+  if (!q || q.length < 2) return [];
 
-  const seen = new Set();
-  const allProducts = [];
+  const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
+  if (words.length === 0) return [];
 
-  const addProducts = (hits) => {
-  for (let p of hits) {
-    if (!p || !p.product_name || !p.nutriments) continue;
-    // brands kan een array zijn vanuit de API
-    if (Array.isArray(p.brands)) p = { ...p, brands: p.brands.join(', ') };
-    const key = (p.product_name + (p.brands || '')).toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    allProducts.push(p);
-  }
-};
+  let allProducts = [];
 
+  // ── Interne fetchSearch (heeft nu toegang tot signal, size, onRequest) ──
   const fetchSearch = async (term) => {
     if (signal?.aborted) return [];
     const url =
@@ -391,8 +381,8 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
       `?q=${encodeURIComponent(term)}` +
       `&fields=product_name,brands,nutriments,serving_size` +
       `&page_size=${size}` +
-      `&boost_tags=countries_tags:en:netherlands` +
-      `&sort_by=completeness`;
+      `&filter_by=${encodeURIComponent('countries_tags:en:netherlands AND nutriments.energy-kcal_100g:[1 TO *]')}` +
+      `&sort_by=unique_scans_n`;
     try {
       const res = await timedFetch(url, signal, 6000);
       if (!res.ok) return [];
@@ -402,55 +392,44 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
     } catch { return []; }
   };
 
-  const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
+  // ── helper: bepaalt of product volledige macro's heeft (voor fallback-check) ──
+  const heeftMacros = (p) => {
+    const n = p.nutriments;
+    return n && getKcal100g(n) > 0 &&
+           n['proteins_100g'] != null &&
+           n['carbohydrates_100g'] != null &&
+           n['fat_100g'] != null;
+  };
 
-  // ── Strategie 1: merk-eerst ──────────────────────────────────────────────
- // Strategie 1: zoek op productnaam-woorden, filter client-side op merk
-if (words.length >= 2) {
-  for (const brandCandidate of words) {
-    if (signal?.aborted) break;
-    const restWords = words.filter(w => w !== brandCandidate);
+  // ── Strategie 1: volledige zoekterm (volgorde maakt niet uit) ──────────────
+  let hits = await fetchSearch(q);
+  if (hits.length) allProducts = [...allProducts, ...hits];
 
-    const hits = await fetchSearch(restWords.join(' '));
-
-    const matched = hits
-      .map(p => Array.isArray(p.brands) ? { ...p, brands: p.brands.join(', ') } : p)
-      .filter(p => {
-       if (!p.product_name || !p.nutriments) return false;
-        const merk = (p.brands || '').toLowerCase();
-        const naam = (p.product_name || '').toLowerCase();
-        return merk.includes(brandCandidate) && restWords.some(w => naam.includes(w));
-      });
-
-    if (matched.length > 0) {
-      addProducts(matched);
-      break;
-    }
-  }
-}
-
-  // ── Strategie 2: directe zoekopdracht (fallback) ─────────────────────────
-  if (allProducts.length === 0 && !signal?.aborted) {
-    const hits = await fetchSearch(q);
-    addProducts(hits);
-  }
-
-  // ── Strategie 3: per woord zoeken als nog steeds niets ───────────────────
-  if (allProducts.length === 0 && q.includes(' ') && !signal?.aborted) {
-    const wordSearches = words.filter(w => w.length >= 3).map(w => fetchSearch(w));
-    const results = await Promise.allSettled(wordSearches);
-    results.forEach(r => { if (r.status === 'fulfilled') addProducts(r.value); });
-  }
-
-  // ── Strategie 4: Nederlandse vertaling ───────────────────────────────────
-  if (allProducts.length === 0 && !signal?.aborted) {
-    const translated = words.map(w => NL_EN[w] || w).join(' ');
-    if (translated !== q.toLowerCase()) {
-      const hits = await fetchSearch(translated);
-      addProducts(hits);
+  // ── Strategie 2: per woord (fallback) ──────────────────────────────────────
+  if (allProducts.filter(heeftMacros).length < 3 && !signal?.aborted) {
+    for (const w of words) {
+      const extraHits = await fetchSearch(w);
+      if (extraHits.length) allProducts = [...allProducts, ...extraHits];
     }
   }
 
+  // ── Strategie 3: NL → EN vertaling (fallback) ──────────────────────────────
+  const translatedWords = words.map(w => NL_EN[w] || w).join(' ');
+  if (translatedWords !== q && allProducts.filter(heeftMacros).length < 3 && !signal?.aborted) {
+    const extraHits = await fetchSearch(translatedWords);
+    if (extraHits.length) allProducts = [...allProducts, ...extraHits];
+  }
+
+  // ── Dedupliceren ──────────────────────────────────────────────────────────
+  const seen = new Set();
+  allProducts = allProducts.filter(p => {
+    const key = p.product_name?.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // ── Scoren & filteren met bestaande scoreProduct (macro-check + zoekwoordmatch) ──
   const gesorteerd = allProducts
     .map(p => ({ p, score: scoreProduct(p, q) }))
     .filter(x => x.score >= 0)
@@ -844,7 +823,7 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
         if (signal.aborted) break;
         const { qty } = parsed[i];
         try {
-          const prods = await searchALicious(cleans[i], signal, 20, onRequest);
+          const prods = await searchALicious(cleans[i], signal, 100, onRequest);
           if (prods.length) {
             gevonden.push(...prods.map(product => ({ product, qty })));
           } else {
@@ -965,7 +944,7 @@ function App() {
   const [kSaved,   setKSaved]   = useState(false);
   const [gSaved,   setGSaved]   = useState(false);
   const [usageTick, setUsageTick] = useState(0);
-  const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 20));
+  const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 100));
   const [presets, setPresets] = useState(() => loadPresets());
   const [showMealBuilder, setShowMealBuilder] = useState(false);
 
