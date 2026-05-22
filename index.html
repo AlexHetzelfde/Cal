@@ -417,6 +417,39 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
     if (translated !== q.toLowerCase()) await doSearch(translated);
   }
 
+// Stap 4 – merk-gefilterd zoeken
+// Probeer elk woord als merknaam + de rest als zoekopdracht
+if (allProducts.length < 3 && !signal?.aborted) {
+  const words = q.toLowerCase().split(' ').filter(w => w.length >= 3);
+  
+  for (const brandCandidate of words) {
+    if (signal?.aborted) break;
+    const rest = words.filter(w => w !== brandCandidate).join(' ');
+    if (!rest) continue; // alleen nuttig als er ook iets anders is om op te zoeken
+    
+    try {
+      const url =
+        `https://off-proxy.mightygamer500.workers.dev/search` +
+        `?q=${encodeURIComponent(rest)}` +
+        `&fields=product_name,brands,nutriments,serving_size` +
+        `&page_size=${size}` +
+        `&brands_tags=${encodeURIComponent(brandCandidate)}` +
+        `&sort_by=completeness`;
+      
+      const res = await timedFetch(url, signal, 6000);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data.hits) {
+        addProducts(data.hits);
+        incrementCFUsage();
+        onRequest?.();
+      }
+    } catch (e) {}
+    
+    if (allProducts.length >= 3) break; // genoeg gevonden, stop
+  }
+}
+
   const gesorteerd = allProducts
     .map(p => ({ p, score: scoreProduct(p, q) }))
     .filter(x => x.score >= 0)
