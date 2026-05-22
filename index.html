@@ -386,6 +386,7 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
       const res = await timedFetch(url, signal, 6000);
       if (!res.ok) return [];
       const data = await res.json();
+      console.log('fetchSearch hits:', data.hits?.length, 'term:', term);
       if (data.hits) { incrementCFUsage(); onRequest?.(); }
       return data.hits || [];
     } catch { return []; }
