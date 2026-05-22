@@ -291,6 +291,21 @@ const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? 
 
 const SEARCH_CACHE_KEY = 'ct_search_cache';
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 uur
+const CF_USAGE_KEY = 'ct_cf_usage';
+
+const getCFUsage = () => {
+  try {
+    const data = JSON.parse(localStorage.getItem(CF_USAGE_KEY) || '{}');
+    if (data.date !== TODAY()) return { date: TODAY(), count: 0 };
+    return data;
+  } catch { return { date: TODAY(), count: 0 }; }
+};
+
+const incrementCFUsage = () => {
+  const data = getCFUsage();
+  data.count = (data.count || 0) + 1;
+  localStorage.setItem(CF_USAGE_KEY, JSON.stringify(data));
+};
 
 const getCachedResults = (term) => {
   try {
@@ -321,7 +336,7 @@ const NL_EN = {
   chocolade:'chocolate', noten:'nuts', spek:'bacon', worst:'sausage'
 };
 
-const searchALicious = async (q, signal, size = 50) => {
+const searchALicious = async (q, signal, size = 50, onRequest) => {
   const cached = getCachedResults(q);
   if (cached) return cached;
 
@@ -352,7 +367,11 @@ const searchALicious = async (q, signal, size = 50) => {
       const res = await timedFetch(url, signal, 6000);
       if (!res.ok) return;
       const data = await res.json();
-      if (data.hits) addProducts(data.hits);
+      if (data.hits) {
+       addProducts(data.hits);
+       incrementCFUsage();
+       onRequest?.();
+      }
     } catch (e) {}
   };
 
@@ -703,7 +722,7 @@ function BarcodeScanner({ onDetected, onClose }) {
 }
 
 // ── Meal Builder Modal ────────────────────────────────────────────────────────
-function MealBuilderModal({ onClose, onSave }) {
+function MealBuilderModal({ onClose, onSave, onRequest }) {
   const [name, setName] = useState('');
   const [items, setItems] = useState([]);
   const [offQuery, setOffQuery] = useState('');
@@ -759,7 +778,7 @@ function MealBuilderModal({ onClose, onSave }) {
         if (signal.aborted) break;
         const { qty } = parsed[i];
         try {
-          const prods = await searchALicious(cleans[i], signal, 20);
+          const prods = await searchALicious(cleans[i], signal, 20, onRequest);
           if (prods.length) {
             gevonden.push(...prods.map(product => ({ product, qty })));
           } else {
@@ -1020,7 +1039,7 @@ const handleSaveMeal = (preset) => {
         setOffPhaseMsg(progressMessages.join(' · '));
 
         try {
-          const prods = await searchALicious(cleans[i], signal, maxResults);
+          const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1));
           if (prods.length > 0) {
             gevonden.push(...prods.map(product => ({ product, qty })));
             progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} product(en) gevonden`;
@@ -1137,7 +1156,7 @@ const handleSaveMeal = (preset) => {
 
   return html`<div>
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
-        ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal}/>`}
+        ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)}/>`}
 
     <!-- Search Modal -->
     ${showModal && html`
@@ -1403,6 +1422,37 @@ const handleSaveMeal = (preset) => {
             Lokale tellers resetten
           </button>
         </div>
+        <div class="card">
+  <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:12px">Cloudflare Worker gebruik</div>
+  ${(() => {
+    const cf = getCFUsage();
+    const used = cf.count || 0;
+    const max = 100000;
+    const pct = Math.min(used / max * 100, 100);
+    const over = used >= max;
+    return html`
+      <div style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+          <span>Zoekopdrachten vandaag</span>
+          <span class="mono" style="color:${over?'var(--danger)':'var(--text)'}">${used.toLocaleString()} / ${max.toLocaleString()}</span>
+        </div>
+        <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:${over?'var(--danger)':'var(--c)'};border-radius:6px;transition:width .3s"/>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--dim);margin-top:6px;line-height:1.4">
+        Gratis limiet via Cloudflare Workers: 100.000 per dag.<br/>
+        Teller reset automatisch om middernacht.
+      </div>
+      <button class="btn" onClick=${() => {
+        localStorage.removeItem(CF_USAGE_KEY);
+        setUsageTick(t => t+1);
+      }} style="margin-top:12px;background:var(--dim);color:var(--text);border:1px solid var(--border)">
+        Teller resetten
+      </button>
+    `;
+  })()}
+</div>
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:12px">Zoekresultaten</div>
           <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.4">
