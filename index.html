@@ -351,7 +351,7 @@ function scoreProduct(product, query) {
 
   // Filter: product moet minstens de helft van de zoekwoorden bevatten
   const treffers = woorden.filter(w => naam.includes(w) || merk.includes(w));
-  if (treffers.length < Math.ceil(woorden.length / 2)) return -1;
+  if (treffers.length < 1) return -1;
 
   let score = treffers.length * 10;
   if (naam === query.toLowerCase()) score += 50;
