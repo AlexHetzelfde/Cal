@@ -336,7 +336,7 @@ const NL_EN = {
   chocolade:'chocolate', noten:'nuts', spek:'bacon', worst:'sausage'
 };
 
-const searchALicious = async (q, signal, size = 50, onRequest) => {
+const searchALicious = async (q, signal, size = 50, onRequest, global = false) => {
   const cached = getCachedResults(q);
   if (cached) return cached;
 
@@ -361,7 +361,7 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
       `&fields=product_name,brands,nutriments,serving_size` +
       `&page_size=${size}` +
       `&langs=nl,en` +
-      `&boost_tags=countries_tags:en:netherlands` +
+      `${global ? '' : '&countries_tags=en:netherlands'}` +
       extra;
     try {
       const res = await timedFetch(url, signal, 6000);
@@ -778,7 +778,7 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
         if (signal.aborted) break;
         const { qty } = parsed[i];
         try {
-          const prods = await searchALicious(cleans[i], signal, 20, onRequest);
+          const prods = await searchALicious(cleans[i], signal, 20, onRequest, false);
           if (prods.length) {
             gevonden.push(...prods.map(product => ({ product, qty })));
           } else {
@@ -902,6 +902,7 @@ function App() {
   const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 20));
   const [presets, setPresets] = useState(() => loadPresets());
   const [showMealBuilder, setShowMealBuilder] = useState(false);
+  const [globalSearch, setGlobalSearch] = useState(() => jget('ct_globalSearch', false));
 
   const offInputRef = useRef();
   const aiInputRef  = useRef();
@@ -1039,7 +1040,7 @@ const handleSaveMeal = (preset) => {
         setOffPhaseMsg(progressMessages.join(' · '));
 
         try {
-          const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1));
+          const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1), globalSearch);
           if (prods.length > 0) {
             gevonden.push(...prods.map(product => ({ product, qty })));
             progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} product(en) gevonden`;
@@ -1220,8 +1221,19 @@ const handleSaveMeal = (preset) => {
 
         <!-- OFF zoekbalk -->
         <div class="card">
-          <div class="section-label">● Database zoeken</div>
-          <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+  <div class="section-label" style="margin-bottom:0">● Database zoeken</div>
+  <button onClick=${() => { const v = !globalSearch; setGlobalSearch(v); jset('ct_globalSearch', v); }}
+    style="display:flex;align-items:center;gap:5px;background:none;border:none;cursor:pointer;padding:0">
+    <div style="width:28px;height:16px;border-radius:8px;background:${globalSearch?'var(--c)':'var(--border)'};position:relative;transition:background .2s;flex-shrink:0">
+      <div style="position:absolute;top:2px;left:${globalSearch?'14px':'2px'};width:12px;height:12px;border-radius:50%;background:var(--text);transition:left .2s"/>
+    </div>
+    <span style="font-size:10px;color:${globalSearch?'var(--c)':'var(--muted)'};font-weight:600">
+      ${globalSearch?'Wereldwijd':'Alleen NL'}
+    </span>
+  </button>
+</div>
+<div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
             Zoeken in Open Food Facts. Meerdere producten scheiden met een komma.
           </div>
           <div style="display:flex;gap:8px">
