@@ -336,6 +336,31 @@ const NL_EN = {
   chocolade:'chocolate', noten:'nuts', spek:'bacon', worst:'sausage'
 };
 
+function scoreProduct(product, query) {
+  const n = product.nutriments;
+  const heeftMacros =
+    getKcal100g(n) > 0 &&
+    n['proteins_100g'] != null &&
+    n['carbohydrates_100g'] != null &&
+    n['fat_100g'] != null;
+  if (!heeftMacros) return -1;
+
+  const naam = (product.product_name || '').toLowerCase();
+  const merk = (product.brands || '').toLowerCase();
+  const woorden = query.toLowerCase().split(' ').filter(w => w.length >= 2);
+
+  // Filter: product moet minstens de helft van de zoekwoorden bevatten
+  const treffers = woorden.filter(w => naam.includes(w) || merk.includes(w));
+  if (treffers.length < Math.ceil(woorden.length / 2)) return -1;
+
+  let score = treffers.length * 10;
+  if (naam === query.toLowerCase()) score += 50;
+  else if (naam.startsWith(query.toLowerCase())) score += 30;
+  if (product.serving_size) score += 5;
+
+  return score;
+}
+
 const searchALicious = async (q, signal, size = 50, onRequest) => {
   const cached = getCachedResults(q);
   if (cached) return cached;
@@ -362,6 +387,7 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
       `&page_size=${size}` +
       `&langs=nl,en` +
       `&boost_tags=countries_tags:en:netherlands` +
+      `&sort_by=completeness` +
       extra;
     try {
       const res = await timedFetch(url, signal, 6000);
@@ -391,8 +417,14 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
     if (translated !== q.toLowerCase()) await doSearch(translated);
   }
 
-  if (allProducts.length > 0) setCachedResults(q, allProducts);
-  return allProducts;
+  const gesorteerd = allProducts
+    .map(p => ({ p, score: scoreProduct(p, q) }))
+    .filter(x => x.score >= 0)
+    .sort((a, b) => b.score - a.score)
+    .map(x => x.p);
+
+  if (gesorteerd.length > 0) setCachedResults(q, gesorteerd);
+  return gesorteerd;
 };
 
 const offBarcode = async (barcode, signal) => {
