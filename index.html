@@ -378,77 +378,71 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
     }
   };
 
-  const doSearch = async (term, extra = '') => {
-    if (signal?.aborted) return;
+  const fetchSearch = async (term) => {
+    if (signal?.aborted) return [];
     const url =
       `https://off-proxy.mightygamer500.workers.dev/search` +
       `?q=${encodeURIComponent(term)}` +
       `&fields=product_name,brands,nutriments,serving_size` +
       `&page_size=${size}` +
-      `&langs=nl,en` +
       `&boost_tags=countries_tags:en:netherlands` +
-      `&sort_by=completeness` +
-      extra;
+      `&sort_by=completeness`;
     try {
       const res = await timedFetch(url, signal, 6000);
-      if (!res.ok) return;
+      if (!res.ok) return [];
       const data = await res.json();
-      if (data.hits) {
-       addProducts(data.hits);
-       incrementCFUsage();
-       onRequest?.();
-      }
-    } catch (e) {}
+      if (data.hits) { incrementCFUsage(); onRequest?.(); }
+      return data.hits || [];
+    } catch { return []; }
   };
 
-  // Stap 1 – directe zoekopdracht
-  await doSearch(q);
+  const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
 
-  // Stap 2 – meerdere woorden: ook per woord zoeken als niets gevonden
-  if (allProducts.length === 0 && q.includes(' ') && !signal?.aborted) {
-    const words = q.split(' ').filter(w => w.length >= 3);
-    await Promise.allSettled(words.map(w => doSearch(w)));
-  }
+  // ── Strategie 1: merk-eerst ──────────────────────────────────────────────
+  // Voor elke zoekterm probeer je elk woord als merknaam.
+  // Zoek op dat woord, en filter de hits client-side op de overige woorden.
+  // Zo werkt het voor elk merk automatisch: Melkan, Campina, Optimel, etc.
+  if (words.length >= 2) {
+    for (const brandCandidate of words) {
+      if (signal?.aborted) break;
+      const restWords = words.filter(w => w !== brandCandidate);
 
-  // Stap 3 – Nederlandse vertaling als fallback
-  if (allProducts.length === 0 && !signal?.aborted) {
-    const words = q.toLowerCase().split(' ');
-    const translated = words.map(w => NL_EN[w] || w).join(' ');
-    if (translated !== q.toLowerCase()) await doSearch(translated);
-  }
+      const hits = await fetchSearch(brandCandidate);
 
-// Stap 4 – merk-gefilterd zoeken
-// Probeer elk woord als merknaam + de rest als zoekopdracht
-if (allProducts.length < 3 && !signal?.aborted) {
-  const words = q.toLowerCase().split(' ').filter(w => w.length >= 3);
-  
-  for (const brandCandidate of words) {
-    if (signal?.aborted) break;
-    const rest = words.filter(w => w !== brandCandidate).join(' ');
-    if (!rest) continue; // alleen nuttig als er ook iets anders is om op te zoeken
-    
-    try {
-      const url =
-        `https://off-proxy.mightygamer500.workers.dev/search` +
-        `?q=${encodeURIComponent(rest)}` +
-        `&fields=product_name,brands,nutriments,serving_size` +
-        `&page_size=${size}` +
-        `&brands_tags=${encodeURIComponent(brandCandidate)}` +
-        `&sort_by=completeness`;
-      
-      const res = await timedFetch(url, signal, 6000);
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data.hits) {
-        addProducts(data.hits);
-        incrementCFUsage();
-        onRequest?.();
+      const matched = hits.filter(p => {
+        const naam = (p.product_name || '').toLowerCase();
+        const merk = (p.brands || '').toLowerCase();
+        return restWords.every(w => naam.includes(w) || merk.includes(w));
+      });
+
+      if (matched.length > 0) {
+        addProducts(matched);
+        break; // merk gevonden + producten gematcht, klaar
       }
-    } catch (e) {}
-    
-    if (allProducts.length >= 3) break; // genoeg gevonden, stop
+    }
   }
-}
+
+  // ── Strategie 2: directe zoekopdracht (fallback) ─────────────────────────
+  if (allProducts.length === 0 && !signal?.aborted) {
+    const hits = await fetchSearch(q);
+    addProducts(hits);
+  }
+
+  // ── Strategie 3: per woord zoeken als nog steeds niets ───────────────────
+  if (allProducts.length === 0 && q.includes(' ') && !signal?.aborted) {
+    const wordSearches = words.filter(w => w.length >= 3).map(w => fetchSearch(w));
+    const results = await Promise.allSettled(wordSearches);
+    results.forEach(r => { if (r.status === 'fulfilled') addProducts(r.value); });
+  }
+
+  // ── Strategie 4: Nederlandse vertaling ───────────────────────────────────
+  if (allProducts.length === 0 && !signal?.aborted) {
+    const translated = words.map(w => NL_EN[w] || w).join(' ');
+    if (translated !== q.toLowerCase()) {
+      const hits = await fetchSearch(translated);
+      addProducts(hits);
+    }
+  }
 
   const gesorteerd = allProducts
     .map(p => ({ p, score: scoreProduct(p, q) }))
