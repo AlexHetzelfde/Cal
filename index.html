@@ -356,13 +356,13 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
   const doSearch = async (term, extra = '') => {
     if (signal?.aborted) return;
     const url =
-  `https://off-proxy.mightygamer500.workers.dev/search` +
-  `?q=${encodeURIComponent(term)}` +
-  `&fields=product_name,brands,nutriments,serving_size` +
-  `&page_size=${size}` +
-  `&langs=nl,en` +
-  `&countries_tags=en:netherlands` +
-  extra;
+      `https://off-proxy.mightygamer500.workers.dev/search` +
+      `?q=${encodeURIComponent(term)}` +
+      `&fields=product_name,brands,nutriments,serving_size` +
+      `&page_size=${size}` +
+      `&langs=nl,en` +
+      `&boost_tags=countries_tags:en:netherlands` +
+      extra;
     try {
       const res = await timedFetch(url, signal, 6000);
       if (!res.ok) return;
