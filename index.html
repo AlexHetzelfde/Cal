@@ -381,7 +381,8 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
       `?q=${encodeURIComponent(term)}` +
       `&fields=product_name,brands,nutriments,serving_size` +
       `&page_size=${size}` +
-      `&filter_by=${encodeURIComponent('countries_tags:en:netherlands AND nutriments.energy-kcal_100g:[1 TO *]')}` +
+      `&filter_by=countries_tags:en:netherlands` +
+      `&filter_by=nutriments.energy-kcal_100g:[1 TO *]` +
       `&sort_by=unique_scans_n`;
     try {
       const res = await timedFetch(url, signal, 6000);
