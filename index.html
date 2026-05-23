@@ -186,7 +186,6 @@ const callGemini = async (systemText, userText, maxTokens = 1000, tools = null) 
   generationConfig: { maxOutputTokens: maxTokens },
   ...(tools && { tools: [{ functionDeclarations: tools }] })
 })
-          }
       );
       const data = await res.json();
       const overloaded = data.error?.code === 429
@@ -1256,7 +1255,7 @@ const handleSaveMeal = (preset) => {
   const executeAISearch = async (query, imageData = null) => {
   setAiLoading(true); setAiError(''); setAiBericht('');
   try {
-    // Bouw de parts array (tekst + eventuele foto)
+    // Bouw parts met eventuele foto
     const parts = [{ text: query }];
     if (imageData) {
       parts.push({ inlineData: { mimeType: imageData.mimeType, data: imageData.data } });
@@ -1265,31 +1264,46 @@ const handleSaveMeal = (preset) => {
 
     // Eerste AI-aanroep met tools
     let response = await callGemini(
-      `Je bent een voedingsdeskundige. Je kunt de Open Food Facts database doorzoeken met 'search_off_database' en producten ophalen met 'get_product_by_barcode'. Gebruik deze functies om de gebruiker te helpen. Als een zoekopdracht meerdere resultaten geeft, kies dan het beste product. Als het product niet gevonden wordt, geef dan een korte schatting in JSON zoals gevraagd.`,
+      `Je bent een voedingsdeskundige. Je kunt de Open Food Facts database doorzoeken met 'search_off_database' en producten ophalen met 'get_product_by_barcode'. Gebruik deze functies om de gebruiker te helpen. Als een tekstuele zoekopdracht geen of het verkeerde product oplevert, probeer dan zelf de barcode te vinden (gebruik je kennis van veelvoorkomende producten) en gebruik 'get_product_by_barcode'. Geef alleen een schatting als het product met geen van beide tools kan worden gevonden.`,
       parts,
       2048,
       AI_TOOLS
     );
 
     let functionCall = response.candidates?.[0]?.content?.parts?.find(p => p.functionCall)?.functionCall;
-    let maxLoops = 3;
+    let maxLoops = 4; // iets meer ademruimte
     while (functionCall && maxLoops-- > 0) {
-      const resultParts = [];
       if (functionCall.name === 'search_off_database') {
         const q = functionCall.args.query;
         setAiBericht(`AI zoekt naar "${q}"...`);
         const products = await fetchV1Search(q, new AbortController().signal, 10);
         if (products.length > 0) {
-          const productList = products.map(p => p.product_name).join(', ');
-          resultParts.push({ text: `Gevonden producten: ${productList}. Kies het beste product en geef de voedingswaarden als JSON, of als geen past, geef een schatting.` });
+          // ✅ Direct in de bekende SearchModal tonen (niet zelf kiezen, gebruiker ziet alles)
+          setOffResults(products.map(product => ({ product, qty: null })));
+          setModalLabel(query); // oorspronkelijke zoekvraag
+          setShowModal(true);
+          setAiLoading(false);
+          setAiQuery('');
+          return; // stop hier, gebruiker kiest zelf
         } else {
-          resultParts.push({ text: 'Geen producten gevonden in de database. Geef een schatting van de voedingswaarden in JSON-formaat.' });
+          // Stuur terug naar AI dat er niets is, maar geef kans om barcode te proberen
+          const retryParts = [
+            ...parts,
+            { text: `Zoekopdracht "${q}" leverde geen resultaten op. Probeer een barcode als je die weet (gebruik 'get_product_by_barcode'), anders geef een schatting.` }
+          ];
+          response = await callGemini(
+            `Je kunt nog steeds de functies gebruiken.`,
+            retryParts,
+            2048,
+            AI_TOOLS   // tools opnieuw meesturen
+          );
         }
       } else if (functionCall.name === 'get_product_by_barcode') {
         const barcode = functionCall.args.barcode;
         setAiBericht(`AI haalt product op met barcode ${barcode}...`);
         const product = await offBarcode(barcode, new AbortController().signal);
         if (product) {
+          // ✅ Ook netjes in de modal tonen
           setOffResults([{ product, qty: null }]);
           setModalLabel(`Barcode ${barcode}`);
           setShowModal(true);
@@ -1297,19 +1311,22 @@ const handleSaveMeal = (preset) => {
           setAiQuery('');
           return;
         } else {
-          resultParts.push({ text: 'Product niet gevonden met deze barcode. Geef een schatting van de voedingswaarden.' });
+          // Geen product, terug naar AI voor schatting
+          const retryParts = [
+            ...parts,
+            { text: `Product met barcode ${barcode} niet gevonden. Geef een schatting van de voedingswaarden.` }
+          ];
+          response = await callGemini(
+            `Je kunt nu een schatting geven.`,
+            retryParts,
+            2048
+          );
         }
       }
-      // Stuur het resultaat terug naar de AI
-      response = await callGemini(
-        'Je kunt de resultaten gebruiken om verder te gaan.',
-        [...parts, ...resultParts.map(r => ({ text: r.text }))],
-        2048
-      );
       functionCall = response.candidates?.[0]?.content?.parts?.find(p => p.functionCall)?.functionCall;
     }
 
-    // Als we hier komen, is er geen functie-aanroep meer: verwerk als normaal antwoord (JSON of tekst)
+    // Geen (bruikbare) functie-aanroep meer: verwerk als normaal antwoord (JSON of tekst)
     try {
       const parsed = parseGeminiJson(response);
       addItems(parsed.items || []);
