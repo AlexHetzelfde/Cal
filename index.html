@@ -180,12 +180,13 @@ const callGemini = async (systemText, userText, maxTokens = 1000, tools = null) 
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${k}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-  system_instruction: { parts: [{ text: systemText }] },
-  contents: [{ role: 'user', parts: typeof userText === 'string' ? [{ text: userText }] : userText }],
-  generationConfig: { maxOutputTokens: maxTokens },
-  ...(tools && { tools: [{ functionDeclarations: tools }] })
-})
+                    body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemText }] },
+            contents: [{ role: 'user', parts: typeof userText === 'string' ? [{ text: userText }] : userText }],
+            generationConfig: { maxOutputTokens: maxTokens },
+            ...(tools && { tools: [{ functionDeclarations: tools }] })
+          })
+        }
       );
       const data = await res.json();
       const overloaded = data.error?.code === 429
