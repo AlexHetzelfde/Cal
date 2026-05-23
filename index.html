@@ -82,6 +82,8 @@
     .product-row-body { border-top: 1px solid var(--border); padding: 13px 14px; animation: fadeUp .18s ease; }
     /* Drag handle */
     .drag-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 10px auto 0; }
+    .icon-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; width: 42px; height: 42px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; flex-shrink: 0; }
+    .icon-btn:hover { border-color: var(--text); color: var(--text); }
   </style>
 </head>
 <body>
@@ -129,6 +131,31 @@ const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSO
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 
+const AI_TOOLS = [
+  {
+    name: "search_off_database",
+    description: "Zoek in de Open Food Facts database naar producten met een vrije tekst query. Gebruik dit als de gebruiker een specifiek product beschrijft, zoals 'Arla volle yoghurt'.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "De zoekterm, bijv. 'Arla halfvolle melk'." }
+      },
+      required: ["query"]
+    }
+  },
+  {
+    name: "get_product_by_barcode",
+    description: "Haal de volledige productinformatie op uit de database met een barcode (EAN). Gebruik dit als de gebruiker een barcode noemt of als een product niet via tekst kan worden gevonden.",
+    parameters: {
+      type: "object",
+      properties: {
+        barcode: { type: "string", description: "De streepjescode (EAN) van het product, bijv. '8718166011007'." }
+      },
+      required: ["barcode"]
+    }
+  }
+];
+
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 const MODEL_LIMITS = {
@@ -139,7 +166,7 @@ const MODEL_LIMITS = {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const MAX_RETRIES = 3;
 
-const callGemini = async (systemText, userText, maxTokens = 1000) => {
+const callGemini = async (systemText, userText, maxTokens = 1000, tools = null) => {
   const k = getKey();
   if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
   for (const model of MODELS) {
@@ -154,10 +181,12 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${k}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemText }] },
-            contents: [{ role: 'user', parts: [{ text: userText }] }],
-            generationConfig: { maxOutputTokens: maxTokens }
-          }) }
+  system_instruction: { parts: [{ text: systemText }] },
+  contents: [{ role: 'user', parts: typeof userText === 'string' ? [{ text: userText }] : userText }],
+  generationConfig: { maxOutputTokens: maxTokens },
+  ...(tools && { tools: [{ functionDeclarations: tools }] })
+})
+          }
       );
       const data = await res.json();
       const overloaded = data.error?.code === 429
@@ -1003,6 +1032,8 @@ function App() {
   const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 100));
   const [presets, setPresets] = useState(() => loadPresets());
   const [showMealBuilder, setShowMealBuilder] = useState(false);
+  const [uploadedImage, setUploadedImage] = useState(null);
+  const fileInputRef = useRef(null);
 
   const offInputRef = useRef();
   const aiInputRef  = useRef();
@@ -1010,6 +1041,17 @@ function App() {
 
   useEffect(() => saveLog(log), [log]);
   useEffect(() => { jset('ct_maxResults', maxResults); }, [maxResults]);
+
+  const handleFileUpload = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    setUploadedImage({ mimeType: file.type, data: reader.result.split(',')[1] });
+  };
+  reader.readAsDataURL(file);
+  e.target.value = ''; // reset input zodat dezelfde foto opnieuw gekozen kan worden
+};
 
   const totals = log.reduce((a, i) => ({
     calorieën:    a.calorieën    + i.calorieën,
@@ -1036,28 +1078,12 @@ function App() {
 
   // Trigger AI estimate from modal — close modal, fill AI query, run search
   const handleAIFromModal = async () => {
-    const q = modalLabel || offQuery;
-    closeModal();
-    setAiQuery(q);
-    // Auto-run AI
-    if (!q.trim() || aiLoading) return;
-    setAiLoading(true);
-    setAiError('');
-    setAiBericht('');
-    try {
-      const data   = await callGemini(NUTRITION_SYSTEM, q, 2048);
-      const parsed = parseGeminiJson(data);
-      addItems(parsed.items || []);
-      setAiBericht(parsed.bericht || '');
-      setAiQuery('');
-    } catch (e) {
-      setAiError('Fout: ' + (e.message || 'Probeer opnieuw.'));
-    } finally {
-      setAiLoading(false);
-      setTimeout(() => aiInputRef.current?.focus(), 50);
-    }
-  };
-
+  const q = modalLabel || offQuery;
+  closeModal();
+  setAiQuery(q);
+  if (!q.trim() || aiLoading) return;
+  executeAISearch(q, uploadedImage);
+};
 
 const handleSavePreset = () => {
   if (log.length === 0) return;
@@ -1227,26 +1253,84 @@ const handleSaveMeal = (preset) => {
     }
   };
   // ── AI beschrijven ────────────────────────────────────────────────────────
-  const handleAISearch = async () => {
-    const q = aiQuery.trim();
-    if (!q || aiLoading) return;
-    setAiLoading(true);
-    setAiError('');
-    setAiBericht('');
+  const executeAISearch = async (query, imageData = null) => {
+  setAiLoading(true); setAiError(''); setAiBericht('');
+  try {
+    // Bouw de parts array (tekst + eventuele foto)
+    const parts = [{ text: query }];
+    if (imageData) {
+      parts.push({ inlineData: { mimeType: imageData.mimeType, data: imageData.data } });
+      setUploadedImage(null); // reset na gebruik
+    }
+
+    // Eerste AI-aanroep met tools
+    let response = await callGemini(
+      `Je bent een voedingsdeskundige. Je kunt de Open Food Facts database doorzoeken met 'search_off_database' en producten ophalen met 'get_product_by_barcode'. Gebruik deze functies om de gebruiker te helpen. Als een zoekopdracht meerdere resultaten geeft, kies dan het beste product. Als het product niet gevonden wordt, geef dan een korte schatting in JSON zoals gevraagd.`,
+      parts,
+      2048,
+      AI_TOOLS
+    );
+
+    let functionCall = response.candidates?.[0]?.content?.parts?.find(p => p.functionCall)?.functionCall;
+    let maxLoops = 3;
+    while (functionCall && maxLoops-- > 0) {
+      const resultParts = [];
+      if (functionCall.name === 'search_off_database') {
+        const q = functionCall.args.query;
+        setAiBericht(`AI zoekt naar "${q}"...`);
+        const products = await fetchV1Search(q, new AbortController().signal, 10);
+        if (products.length > 0) {
+          const productList = products.map(p => p.product_name).join(', ');
+          resultParts.push({ text: `Gevonden producten: ${productList}. Kies het beste product en geef de voedingswaarden als JSON, of als geen past, geef een schatting.` });
+        } else {
+          resultParts.push({ text: 'Geen producten gevonden in de database. Geef een schatting van de voedingswaarden in JSON-formaat.' });
+        }
+      } else if (functionCall.name === 'get_product_by_barcode') {
+        const barcode = functionCall.args.barcode;
+        setAiBericht(`AI haalt product op met barcode ${barcode}...`);
+        const product = await offBarcode(barcode, new AbortController().signal);
+        if (product) {
+          setOffResults([{ product, qty: null }]);
+          setModalLabel(`Barcode ${barcode}`);
+          setShowModal(true);
+          setAiLoading(false);
+          setAiQuery('');
+          return;
+        } else {
+          resultParts.push({ text: 'Product niet gevonden met deze barcode. Geef een schatting van de voedingswaarden.' });
+        }
+      }
+      // Stuur het resultaat terug naar de AI
+      response = await callGemini(
+        'Je kunt de resultaten gebruiken om verder te gaan.',
+        [...parts, ...resultParts.map(r => ({ text: r.text }))],
+        2048
+      );
+      functionCall = response.candidates?.[0]?.content?.parts?.find(p => p.functionCall)?.functionCall;
+    }
+
+    // Als we hier komen, is er geen functie-aanroep meer: verwerk als normaal antwoord (JSON of tekst)
     try {
-      const data   = await callGemini(NUTRITION_SYSTEM, q, 2048);
-      const parsed = parseGeminiJson(data);
+      const parsed = parseGeminiJson(response);
       addItems(parsed.items || []);
       setAiBericht(parsed.bericht || '');
-      setAiQuery('');
-    } catch (e) {
-      setAiError('Fout: ' + (e.message || 'Probeer opnieuw.'));
-    } finally {
-      setAiLoading(false);
-      setTimeout(() => aiInputRef.current?.focus(), 50);
+    } catch {
+      const text = response.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+      setAiBericht(text);
     }
-  };
+    setAiQuery('');
+  } catch (e) {
+    setAiError('Fout: ' + (e.message || 'Probeer opnieuw.'));
+  } finally {
+    setAiLoading(false);
+  }
+};
 
+const handleAISearch = () => {
+  const q = aiQuery.trim();
+  if (!q || aiLoading) return;
+  executeAISearch(q, uploadedImage);
+};
   // ── Barcode: direct endpoint → tekstzoek fallback ─────────────────────────
   const handleBarcode = async (code) => {
     setScanning(false);
@@ -1394,17 +1478,20 @@ const handleSaveMeal = (preset) => {
           <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
             Voor maaltijden en generieke producten. AI schat de voedingswaarden.
           </div>
-          <div style="display:flex;gap:8px">
-            <input ref=${aiInputRef} value=${aiQuery}
-              onInput=${e=>{ setAiQuery(e.target.value); if(aiBericht||aiError){ setAiBericht(''); setAiError(''); } }}
-              onKeyDown=${e=>e.key==='Enter'&&handleAISearch()}
-              placeholder="bijv. 300g groentesoep, 2 eieren…"
-              class="field" style="flex:1"/>
-            <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()}
-              style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${aiLoading||!aiQuery.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
-              ${aiLoading ? '...' : 'Schat'}
-            </button>
-          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+  <input type="file" accept="image/*" capture="environment" style="display:none" ref=${fileInputRef} onChange=${handleFileUpload} />
+  <button class="icon-btn" onClick=${() => fileInputRef.current.click()} title="Foto toevoegen" style="flex-shrink:0;">📷</button>
+  <input ref=${aiInputRef} value=${aiQuery}
+    onInput=${e=>{ setAiQuery(e.target.value); if(aiBericht||aiError){ setAiBericht(''); setAiError(''); } }}
+    onKeyDown=${e=>e.key==='Enter'&&handleAISearch()}
+    placeholder="bijv. 300g groentesoep, 2 eieren…"
+    class="field" style="flex:1"/>
+  <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()}
+    style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${aiLoading||!aiQuery.trim()?'.3':'1'};white-space:nowrap;">
+    ${aiLoading ? '...' : 'Schat'}
+  </button>
+</div>
+${uploadedImage && html`<div style="margin-top:8px;font-size:11px;color:var(--muted);">📎 Foto geselecteerd</div>`}
           ${aiLoading && html`
             <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0">
               <div class="spinner" style="border-top-color:var(--f)"/>
