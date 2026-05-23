@@ -366,6 +366,29 @@ function scoreProduct(product, query) {
   return score;
 }
 
+const fetchV1Search = async (term, signal, size = 50) => {
+  if (signal?.aborted) return [];
+  const url =
+    `https://world.openfoodfacts.org/cgi/search.pl` +
+    `?search_terms=${encodeURIComponent(term)}` +
+    `&json=1` +
+    `&fields=product_name,brands,nutriments,serving_size` +
+    `&page_size=${size}`;
+  try {
+    const res = await timedFetch(url, signal, 6000);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const products = data.products || [];
+    // Zorg dat brands altijd een string is (V1 geeft soms string, soms array; scoreProduct kan beide aan)
+    return products.map(p => ({
+      ...p,
+      brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || ''),
+    }));
+  } catch {
+    return [];
+  }
+};
+
 const searchALicious = async (q, signal, size = 50, onRequest) => {
   if (!q || q.length < 2) return [];
 
@@ -402,9 +425,13 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
            n['fat_100g'] != null;
   };
 
-  // ── Strategie 1: volledige zoekterm (volgorde maakt niet uit) ──────────────
-  let hits = await fetchSearch(q);
-  if (hits.length) allProducts = [...allProducts, ...hits];
+  // ── Strategie 1: beide zoekindexen tegelijk raadplegen ──────────────────
+const [hits1, hitsV1] = await Promise.all([
+  fetchSearch(q),
+  fetchV1Search(q, signal, size)
+]);
+if (hits1.length) allProducts = [...allProducts, ...hits1];
+if (hitsV1.length) allProducts = [...allProducts, ...hitsV1];
 
   // ── Strategie 2: per woord (fallback) ──────────────────────────────────────
   if (false) {
