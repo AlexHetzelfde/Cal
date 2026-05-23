@@ -389,7 +389,7 @@ const fetchV1Search = async (term, signal, size = 50) => {
   }
 };
 
-const searchALicious = async (q, signal, size = 50, onRequest) => {
+const searchALicious = async (q, signal, size = 100, onRequest) => {
   if (!q || q.length < 2) return [];
 
   const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
@@ -397,7 +397,7 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
 
   let allProducts = [];
 
-  // ── Interne fetchSearch (heeft nu toegang tot signal, size, onRequest) ──
+  // ── Interne fetchSearch (Search‑a‑licious via proxy) ──
   const fetchSearch = async (term) => {
     if (signal?.aborted) return [];
     const url =
@@ -410,13 +410,35 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
       const res = await timedFetch(url, signal, 6000);
       if (!res.ok) return [];
       const data = await res.json();
-      console.log('fetchSearch hits:', data.hits?.length, 'term:', term);
       if (data.hits) { incrementCFUsage(); onRequest?.(); }
       return data.hits || [];
     } catch { return []; }
   };
 
-  // ── helper: bepaalt of product volledige macro's heeft (voor fallback-check) ──
+  // ── Interne fetchV1Search (oude V1‑API) ──
+  const fetchV1Search = async (term) => {
+    if (signal?.aborted) return [];
+    const url =
+      `https://world.openfoodfacts.org/cgi/search.pl` +
+      `?search_terms=${encodeURIComponent(term)}` +
+      `&json=1` +
+      `&fields=product_name,brands,nutriments,serving_size` +
+      `&page_size=${size}`;
+    try {
+      const res = await timedFetch(url, signal, 6000);
+      if (!res.ok) return [];
+      const data = await res.json();
+      const products = data.products || [];
+      return products.map(p => ({
+        ...p,
+        brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || ''),
+      }));
+    } catch {
+      return [];
+    }
+  };
+
+  // ── helper: bepaalt of product volledige macro's heeft ──
   const heeftMacros = (p) => {
     const n = p.nutriments;
     return n && getKcal100g(n) > 0 &&
@@ -425,30 +447,38 @@ const searchALicious = async (q, signal, size = 50, onRequest) => {
            n['fat_100g'] != null;
   };
 
-  // ── Strategie 1: beide zoekindexen tegelijk raadplegen ──────────────────
-const [hits1, hitsV1] = await Promise.all([
-  fetchSearch(q),
-  fetchV1Search(q, signal, size)
-]);
-if (hits1.length) allProducts = [...allProducts, ...hits1];
-if (hitsV1.length) allProducts = [...allProducts, ...hitsV1];
+  // ── Strategie 1: beide indexen tegelijk raadplegen ──────────────────────
+  const [hitsSA, hitsV1] = await Promise.all([
+    fetchSearch(q),
+    fetchV1Search(q)
+  ]);
+  if (hitsSA.length) allProducts = [...allProducts, ...hitsSA];
+  if (hitsV1.length) allProducts = [...allProducts, ...hitsV1];
 
-  // ── Strategie 2: per woord (fallback) ──────────────────────────────────────
-  if (false) {
+  // ── Strategie 2: per woord (fallback) ──────────────────────────────────
+  if (allProducts.filter(heeftMacros).length < 3 && !signal?.aborted) {
     for (const w of words) {
-      const extraHits = await fetchSearch(w);
-      if (extraHits.length) allProducts = [...allProducts, ...extraHits];
+      const [sa, v1] = await Promise.all([
+        fetchSearch(w),
+        fetchV1Search(w)
+      ]);
+      if (sa.length) allProducts = [...allProducts, ...sa];
+      if (v1.length) allProducts = [...allProducts, ...v1];
     }
   }
 
-  // ── Strategie 3: NL → EN vertaling (fallback) ──────────────────────────────
+  // ── Strategie 3: NL → EN vertaling (fallback) ──────────────────────────
   const translatedWords = words.map(w => NL_EN[w] || w).join(' ');
   if (translatedWords !== q && allProducts.filter(heeftMacros).length < 3 && !signal?.aborted) {
-    const extraHits = await fetchSearch(translatedWords);
-    if (extraHits.length) allProducts = [...allProducts, ...extraHits];
+    const [sa, v1] = await Promise.all([
+      fetchSearch(translatedWords),
+      fetchV1Search(translatedWords)
+    ]);
+    if (sa.length) allProducts = [...allProducts, ...sa];
+    if (v1.length) allProducts = [...allProducts, ...v1];
   }
 
-  // ── Dedupliceren ──────────────────────────────────────────────────────────
+  // ── Dedupliceren ──────────────────────────────────────────────────────
   const seen = new Set();
   allProducts = allProducts.filter(p => {
     const key = p.product_name?.toLowerCase();
@@ -457,7 +487,6 @@ if (hitsV1.length) allProducts = [...allProducts, ...hitsV1];
     return true;
   });
 
-  // ── Scoren & filteren met bestaande scoreProduct (macro-check + zoekwoordmatch) ──
   const gesorteerd = allProducts
     .map(p => ({ p, score: scoreProduct(p, q) }))
     .filter(x => x.score >= 0)
@@ -467,7 +496,6 @@ if (hitsV1.length) allProducts = [...allProducts, ...hitsV1];
   if (gesorteerd.length > 0) setCachedResults(q, gesorteerd);
   return gesorteerd;
 };
-
 const offBarcode = async (barcode, signal) => {
   const hasNutriments = (product) => product && product.nutriments;
   const isValid = (data) =>
@@ -1071,6 +1099,38 @@ const handleSaveMeal = (preset) => {
   // ── OFF zoeken ────────────────────────────────────────────────────────────
   const handleOFFSearch = async () => {
     const q = offQuery.trim();
+        // Barcode-detectie: direct de barcode-API gebruiken als de zoekterm een getal van 8-14 cijfers is
+    if (/^[0-9]{8,14}$/.test(q)) {
+      if (abortOFF.current) abortOFF.current.abort();
+      const controller = new AbortController();
+      abortOFF.current = controller;
+      const { signal } = controller;
+      setOffLoading(true);
+      setOffPhaseMsg('Barcode opzoeken…');
+      setOffError('');
+      setOffResults([]);
+      setShowModal(false);
+      setModalLabel(q);
+      try {
+        const product = await offBarcode(q, signal);
+        if (product) {
+          setOffResults([{ product, qty: null }]);
+          setShowModal(true);
+        } else {
+          setOffError(`Barcode ${q} niet gevonden in de database.`);
+          setShowModal(true);
+        }
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          setOffError('Fout bij opzoeken van barcode.');
+          setShowModal(true);
+        }
+      } finally {
+        setOffLoading(false);
+        setOffPhaseMsg('');
+      }
+      return; // stop de normale tekstuele zoekopdracht
+    }
     if (!q || offLoading) return;
     if (abortOFF.current) abortOFF.current.abort();
     const controller = new AbortController();
