@@ -131,30 +131,6 @@ const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSO
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 
-const AI_TOOLS = [
-  {
-    name: "search_off_database",
-    description: "Zoek in de Open Food Facts database naar producten met een vrije tekst query. Gebruik dit als de gebruiker een specifiek product beschrijft, zoals 'Arla volle yoghurt'.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "De zoekterm, bijv. 'Arla halfvolle melk'." }
-      },
-      required: ["query"]
-    }
-  },
-  {
-    name: "get_product_by_barcode",
-    description: "Haal de volledige productinformatie op uit de database met een barcode (EAN). Gebruik dit als de gebruiker een barcode noemt of als een product niet via tekst kan worden gevonden.",
-    parameters: {
-      type: "object",
-      properties: {
-        barcode: { type: "string", description: "De streepjescode (EAN) van het product, bijv. '8718166011007'." }
-      },
-      required: ["barcode"]
-    }
-  }
-];
 
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
@@ -166,7 +142,7 @@ const MODEL_LIMITS = {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const MAX_RETRIES = 3;
 
-const callGemini = async (systemText, userText, maxTokens = 1000, tools = null) => {
+const callGemini = async (systemText, userText, maxTokens = 1000) => {
   const k = getKey();
   if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
   for (const model of MODELS) {
@@ -183,8 +159,7 @@ const callGemini = async (systemText, userText, maxTokens = 1000, tools = null) 
                     body: JSON.stringify({
             system_instruction: { parts: [{ text: systemText }] },
             contents: [{ role: 'user', parts: typeof userText === 'string' ? [{ text: userText }] : userText }],
-            generationConfig: { maxOutputTokens: maxTokens },
-            ...(tools && { tools: [{ functionDeclarations: tools }] })
+            generationConfig: { maxOutputTokens: maxTokens }
           })
         }
       );
@@ -934,22 +909,21 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
   };
 
   const handleAISearch = async () => {
-    const q = aiQuery.trim();
-    if (!q || aiLoading) return;
-    setAiLoading(true);
-    setAiError('');
-    try {
-      const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
-      const parsed = parseGeminiJson(data);
-      setItems(p => [...p, ...parsed.items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
-      setAiQuery('');
-    } catch (e) {
-      setAiError('Fout: ' + (e.message || 'Probeer opnieuw.'));
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
+  const q = aiQuery.trim();
+  if (!q || aiLoading) return;
+  setAiLoading(true);
+  setAiError('');
+  try {
+    const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
+    const parsed = parseGeminiJson(data);
+    setItems(p => [...p, ...parsed.items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
+    setAiQuery('');
+  } catch (e) {
+    setAiError('Fout: ' + (e.message || 'Probeer opnieuw.'));
+  } finally {
+    setAiLoading(false);
+  }
+};
   const handleSave = () => {
     if (!name.trim() || items.length === 0) return;
     onSave({ naam: name.trim(), items: items.map(({ id, ...rest }) => rest) });
@@ -1031,6 +1005,7 @@ function App() {
   const [usageTick, setUsageTick] = useState(0);
   const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 100));
   const [presets, setPresets] = useState(() => loadPresets());
+  const [customProducts, setCustomProducts] = useState(() => jget('ct_custom_products', []));
   const [showMealBuilder, setShowMealBuilder] = useState(false);
   const [uploadedImage, setUploadedImage] = useState(null);
   const fileInputRef = useRef(null);
@@ -1041,6 +1016,7 @@ function App() {
 
   useEffect(() => saveLog(log), [log]);
   useEffect(() => { jset('ct_maxResults', maxResults); }, [maxResults]);
+  useEffect(() => { jset('ct_custom_products', customProducts); }, [customProducts]);
 
   const handleFileUpload = (e) => {
   const file = e.target.files[0];
@@ -1082,9 +1058,9 @@ function App() {
   closeModal();
   setAiQuery(q);
   if (!q.trim() || aiLoading) return;
-  executeAISearch(q, uploadedImage);
+  handleAISearch(); // roept de gewone AI-schatting aan
 };
-
+  
 const handleSavePreset = () => {
   if (log.length === 0) return;
   const name = prompt('Geef een naam voor deze maaltijd:');
@@ -1120,6 +1096,14 @@ const handleSaveMeal = (preset) => {
   const updated = [...presets, preset];
   setPresets(updated);
   savePresets(updated);
+};
+
+const addCustomProduct = (product) => {
+  setCustomProducts(prev => [...prev, { ...product, id: Date.now() + Math.random() }]);
+};
+
+const deleteCustomProduct = (id) => {
+  setCustomProducts(prev => prev.filter(p => p.id !== id));
 };
   
   // ── OFF zoeken ────────────────────────────────────────────────────────────
@@ -1200,6 +1184,26 @@ const handleSaveMeal = (preset) => {
         try {
           const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1));
           if (prods.length > 0) {
+            // Eigen producten matchen
+const customMatches = customProducts.filter(p =>
+  p.naam.toLowerCase().includes(cleans[i].toLowerCase())
+);
+if (customMatches.length) {
+  gevonden.push(...customMatches.map(p => ({
+    product: {
+      product_name: p.naam,
+      brands: 'Eigen product',
+      nutriments: {
+        'energy-kcal_100g': p.calorieën,
+        proteins_100g: p.eiwitten,
+        carbohydrates_100g: p.koolhydraten,
+        fat_100g: p.vetten
+      },
+      serving_size: p.serving_size || null
+    },
+    qty
+  })));
+}
             gevonden.push(...prods.map(product => ({ product, qty })));
             progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} product(en) gevonden`;
           } else {
@@ -1253,81 +1257,19 @@ const handleSaveMeal = (preset) => {
     }
   };
   // ── AI beschrijven ────────────────────────────────────────────────────────
-  const executeAISearch = async (query, imageData = null) => {
-  setAiLoading(true); setAiError(''); setAiBericht('');
+  const handleAISearch = async () => {
+  const q = aiQuery.trim();
+  if (!q || aiLoading) return;
+  setAiLoading(true);
+  setAiError('');
+  setAiBericht('');
   try {
-    // Bouw parts met eventuele foto
-    const parts = [{ text: query }];
-    if (imageData) {
-      parts.push({ inlineData: { mimeType: imageData.mimeType, data: imageData.data } });
+    const parts = [{ text: q }];
+    if (uploadedImage) {
+      parts.push({ inlineData: { mimeType: uploadedImage.mimeType, data: uploadedImage.data } });
       setUploadedImage(null); // reset na gebruik
     }
-
-    // Eerste AI-aanroep met tools
-    let response = await callGemini(
-      `Je bent een voedingsdeskundige. Je kunt de Open Food Facts database doorzoeken met 'search_off_database' en producten ophalen met 'get_product_by_barcode'. Gebruik deze functies om de gebruiker te helpen. Als een tekstuele zoekopdracht geen of het verkeerde product oplevert, probeer dan zelf de barcode te vinden (gebruik je kennis van veelvoorkomende producten) en gebruik 'get_product_by_barcode'. Geef alleen een schatting als het product met geen van beide tools kan worden gevonden.`,
-      parts,
-      2048,
-      AI_TOOLS
-    );
-
-    let functionCall = response.candidates?.[0]?.content?.parts?.find(p => p.functionCall)?.functionCall;
-    let maxLoops = 4; // iets meer ademruimte
-    while (functionCall && maxLoops-- > 0) {
-      if (functionCall.name === 'search_off_database') {
-        const q = functionCall.args.query;
-        setAiBericht(`AI zoekt naar "${q}"...`);
-        const products = await fetchV1Search(q, new AbortController().signal, 10);
-        if (products.length > 0) {
-          // ✅ Direct in de bekende SearchModal tonen (niet zelf kiezen, gebruiker ziet alles)
-          setOffResults(products.map(product => ({ product, qty: null })));
-          setModalLabel(query); // oorspronkelijke zoekvraag
-          setShowModal(true);
-          setAiLoading(false);
-          setAiQuery('');
-          return; // stop hier, gebruiker kiest zelf
-        } else {
-          // Stuur terug naar AI dat er niets is, maar geef kans om barcode te proberen
-          const retryParts = [
-            ...parts,
-            { text: `Zoekopdracht "${q}" leverde geen resultaten op. Probeer een barcode als je die weet (gebruik 'get_product_by_barcode'), anders geef een schatting.` }
-          ];
-          response = await callGemini(
-            `Je kunt nog steeds de functies gebruiken.`,
-            retryParts,
-            2048,
-            AI_TOOLS   // tools opnieuw meesturen
-          );
-        }
-      } else if (functionCall.name === 'get_product_by_barcode') {
-        const barcode = functionCall.args.barcode;
-        setAiBericht(`AI haalt product op met barcode ${barcode}...`);
-        const product = await offBarcode(barcode, new AbortController().signal);
-        if (product) {
-          // ✅ Ook netjes in de modal tonen
-          setOffResults([{ product, qty: null }]);
-          setModalLabel(`Barcode ${barcode}`);
-          setShowModal(true);
-          setAiLoading(false);
-          setAiQuery('');
-          return;
-        } else {
-          // Geen product, terug naar AI voor schatting
-          const retryParts = [
-            ...parts,
-            { text: `Product met barcode ${barcode} niet gevonden. Geef een schatting van de voedingswaarden.` }
-          ];
-          response = await callGemini(
-            `Je kunt nu een schatting geven.`,
-            retryParts,
-            2048
-          );
-        }
-      }
-      functionCall = response.candidates?.[0]?.content?.parts?.find(p => p.functionCall)?.functionCall;
-    }
-
-    // Geen (bruikbare) functie-aanroep meer: verwerk als normaal antwoord (JSON of tekst)
+    const response = await callGemini(NUTRITION_SYSTEM, parts, 2048);
     try {
       const parsed = parseGeminiJson(response);
       addItems(parsed.items || []);
@@ -1344,11 +1286,6 @@ const handleSaveMeal = (preset) => {
   }
 };
 
-const handleAISearch = () => {
-  const q = aiQuery.trim();
-  if (!q || aiLoading) return;
-  executeAISearch(q, uploadedImage);
-};
   // ── Barcode: direct endpoint → tekstzoek fallback ─────────────────────────
   const handleBarcode = async (code) => {
     setScanning(false);
@@ -1486,7 +1423,7 @@ const handleAISearch = () => {
               <div class="spinner" style="border-top-color:var(--c)"/>
               <span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span>
             </div>`}
-        </div>
+        </div>   <!-- ← sluit de OFF‑zoekbalk-card af -->
 
         <hr class="divider"/>
 
@@ -1525,39 +1462,56 @@ ${uploadedImage && html`<div style="margin-top:8px;font-size:11px;color:var(--mu
         <hr class="divider"/>
         <!-- Mijn Maaltijden -->
         <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <div class="section-label" style="margin-bottom:0">Mijn maaltijden</div>
-            <button onClick=${() => setShowMealBuilder(true)}
-              style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;opacity:1;transition:all .15s"
-              onMouseOver=${e => e.currentTarget.style.opacity = '0.8'}
-              onMouseOut=${e => e.currentTarget.style.opacity = '1'}>
-              + Nieuwe maaltijd
-            </button>
-          </div>
-          ${presets.length === 0 && html`
-            <div style="font-size:11px;color:var(--dim);text-align:center;padding:10px 0">
-              Bewaar je eerste maaltijd
-            </div>`}
-          ${presets.length > 0 && html`
-            <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">
-              ${presets.map((preset, idx) => html`
-                <div style="position:relative;flex-shrink:0">
-                  <button onClick=${() => handleLoadPreset(preset)}
-                    style="background:var(--s2);color:var(--text);border:1px solid var(--border);border-radius:20px;padding:6px 12px;font-size:11px;cursor:pointer;white-space:nowrap;font-family:'JetBrains Mono',monospace;transition:all .15s"
-                    onMouseOver=${e => { e.currentTarget.style.background='var(--dim)'; }}
-                    onMouseOut=${e => { e.currentTarget.style.background='var(--s2)'; }}>
-                    ${preset.naam}
-                  </button>
-                  <button onClick=${() => handleDeletePreset(idx)}
-                    style="position:absolute;top:-6px;right:-6px;background:var(--danger);color:var(--bg);border:none;border-radius:50%;width:18px;height:18px;font-size:12px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0.8;transition:opacity .15s"
-                    onMouseOver=${e => e.currentTarget.style.opacity='1'}
-                    onMouseOut=${e => e.currentTarget.style.opacity='0.8'}>
-                    ×
-                  </button>
-                </div>`)}
-            </div>`}
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div class="section-label" style="margin-bottom:0">Mijn producten & maaltijden</div>
+    <div style="display:flex;gap:8px;">
+      <button onClick=${() => setShowMealBuilder(true)}
+        style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;opacity:1;">+ Maaltijd</button>
+      <button onClick=${() => {
+        const naam = prompt('Productnaam:');
+        if (!naam) return;
+        const kcal = parseFloat(prompt('Calorieën per 100g:'));
+        if (isNaN(kcal)) return;
+        const eiwit = parseFloat(prompt('Eiwitten per 100g:'));
+        if (isNaN(eiwit)) return;
+        const koolh = parseFloat(prompt('Koolhydraten per 100g:'));
+        if (isNaN(koolh)) return;
+        const vet = parseFloat(prompt('Vetten per 100g:'));
+        if (isNaN(vet)) return;
+        addCustomProduct({ naam, calorieën: kcal, eiwitten: eiwit, koolhydraten: koolh, vetten: vet });
+      }}
+        style="background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;opacity:1;">+ Product</button>
+    </div>
+  </div>
+  ${customProducts.length === 0 && html`
+    <div style="font-size:11px;color:var(--dim);text-align:center;padding:10px 0">
+      Nog geen eigen producten
+    </div>`}
+  ${customProducts.length > 0 && html`
+    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;flex-wrap:wrap;">
+      ${customProducts.map(p => html`
+        <div style="position:relative;flex-shrink:0;margin-bottom:4px;">
+          <button onClick=${() => {
+            addItems([{
+              naam: p.naam,
+              hoeveelheid: '100g',
+              calorieën: p.calorieën,
+              eiwitten: p.eiwitten,
+              koolhydraten: p.koolhydraten,
+              vetten: p.vetten
+            }]);
+          }}
+            style="background:var(--s2);color:var(--text);border:1px solid var(--border);border-radius:20px;padding:6px 12px;font-size:11px;cursor:pointer;white-space:nowrap;font-family:'JetBrains Mono',monospace;">
+            ${p.naam}
+          </button>
+          <button onClick=${() => deleteCustomProduct(p.id)}
+            style="position:absolute;top:-6px;right:-6px;background:var(--danger);color:var(--bg);border:none;border-radius:50%;width:18px;height:18px;font-size:12px;line-height:1;cursor:pointer;">×</button>
         </div>
-          <hr class="divider"/>
+      `)}
+    </div>
+    `}
+</div>
+      <hr class="divider"/>
 
         <!-- Log -->
         ${log.length > 0 && html`
