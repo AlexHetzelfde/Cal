@@ -568,19 +568,21 @@ function Ring({ value, goal, label, color }) {
 
 // ── LogCard ───────────────────────────────────────────────────────────────────
 function LogCard({ item, onRemove }) {
+  const accent = item.eiwitten >= item.koolhydraten && item.eiwitten >= item.vetten
+    ? '#85b098' : item.koolhydraten >= item.vetten ? '#7fa4b8' : '#b89e72';
   return html`
-    <div class="logcard">
+    <div class="logcard" style="border-left:3px solid ${accent};padding-left:11px">
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.naam}</div>
         <div style="color:var(--muted);font-size:11px;margin-top:2px">${item.hoeveelheid}</div>
         <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
-          ${[['E',item.eiwitten,'var(--p)'],['K',item.koolhydraten,'var(--c)'],['V',item.vetten,'var(--f)']].map(([l,v,col]) => html`
-            <span class="tag" style="color:${col};background:${col}1a">${l} ${Math.round(v)}g</span>`)}
+          ${[['E',item.eiwitten,'#85b098'],['K',item.koolhydraten,'#7fa4b8'],['V',item.vetten,'#b89e72']].map(([l,v,col]) => html`
+            <span class="tag" style="color:${col};background:${col}1a;font-size:11px;padding:3px 8px">${l} ${Math.round(v)}g</span>`)}
         </div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <div class="mono" style="font-size:17px;font-weight:600">${Math.round(item.calorieën)}</div>
-        <div style="color:var(--muted);font-size:9px">kcal</div>
+        <div class="mono" style="font-size:20px;font-weight:700;line-height:1">${Math.round(item.calorieën)}</div>
+        <div style="color:var(--muted);font-size:9px;margin-top:2px">kcal</div>
       </div>
       <button onClick=${onRemove}
         style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:18px;padding:2px 4px;flex-shrink:0;line-height:1;transition:color .15s"
@@ -1064,6 +1066,7 @@ function App() {
   const [customProducts, setCustomProducts] = useState(() => jget('ct_custom_products', []));
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showMealBuilder, setShowMealBuilder] = useState(false);
+  const [libTab, setLibTab] = useState('maaltijden');
   const [uploadedImage, setUploadedImage] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -1448,8 +1451,8 @@ const deleteCustomProduct = (id) => {
       ${tab==='add' && html`<div>
 
         <!-- OFF zoekbalk -->
-        <div class="card">
-          <div class="section-label">● Database zoeken</div>
+        <div class="card" style="border-top:2px solid #7fa4b835">
+          <div class="section-label" style="color:var(--c)">● Database zoeken</div>
           <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
             Zoeken in Open Food Facts. Meerdere producten scheiden met een komma.
           </div>
@@ -1485,8 +1488,8 @@ const deleteCustomProduct = (id) => {
         <hr class="divider"/>
 
         <!-- AI beschrijving -->
-        <div class="card">
-          <div class="section-label">✦ Beschrijven met AI</div>
+        <div class="card" style="border-top:2px solid #b89e7235">
+          <div class="section-label" style="color:var(--f)">✦ Beschrijven met AI</div>
           <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
             Voor maaltijden en generieke producten. AI schat de voedingswaarden.
           </div>
@@ -1517,52 +1520,101 @@ ${uploadedImage && html`<div style="margin-top:8px;font-size:11px;color:var(--mu
         </div>
 
         <hr class="divider"/>
-        <!-- Mijn Maaltijden -->
+
+        <!-- Bibliotheek: Maaltijden & Producten -->
         <div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-    <div class="section-label" style="margin-bottom:0">Mijn producten & maaltijden</div>
-    <div style="display:flex;gap:8px;">
-      <button onClick=${() => setShowMealBuilder(true)}
-        style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;opacity:1;">+ Maaltijd</button>
-            <button onClick=${() => setShowAddProduct(true)}
-        style="background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;opacity:1;">+ Product</button>
-    </div>
-  </div>
-  ${customProducts.length === 0 && html`
-    <div style="font-size:11px;color:var(--dim);text-align:center;padding:10px 0">
-      Nog geen eigen producten
-    </div>`}
-  ${customProducts.length > 0 && html`
-    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;flex-wrap:wrap;">
-      ${customProducts.map(p => html`
-        <div style="position:relative;flex-shrink:0;margin-bottom:4px;">
-          <button onClick=${() => {
-            addItems([{
-              naam: p.naam,
-              hoeveelheid: '100g',
-              calorieën: p.calorieën,
-              eiwitten: p.eiwitten,
-              koolhydraten: p.koolhydraten,
-              vetten: p.vetten
-            }]);
-          }}
-            style="background:var(--s2);color:var(--text);border:1px solid var(--border);border-radius:20px;padding:6px 12px;font-size:11px;cursor:pointer;white-space:nowrap;font-family:'JetBrains Mono',monospace;">
-            ${p.naam}
-          </button>
-          <button onClick=${() => deleteCustomProduct(p.id)}
-            style="position:absolute;top:-6px;right:-6px;background:var(--danger);color:var(--bg);border:none;border-radius:50%;width:18px;height:18px;font-size:12px;line-height:1;cursor:pointer;">×</button>
+
+          <!-- Tab-balk -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="display:flex;gap:6px">
+              <button onClick=${() => setLibTab('maaltijden')}
+                style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='maaltijden'?'var(--p)':'var(--border)'};background:${libTab==='maaltijden'?'var(--p)':'transparent'};color:${libTab==='maaltijden'?'var(--bg)':'var(--muted)'}">
+                Maaltijden${presets.length > 0 ? ` (${presets.length})` : ''}
+              </button>
+              <button onClick=${() => setLibTab('producten')}
+                style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='producten'?'var(--c)':'var(--border)'};background:${libTab==='producten'?'var(--c)':'transparent'};color:${libTab==='producten'?'var(--bg)':'var(--muted)'}">
+                Producten${customProducts.length > 0 ? ` (${customProducts.length})` : ''}
+              </button>
+            </div>
+            ${libTab === 'maaltijden'
+              ? html`<button onClick=${() => setShowMealBuilder(true)}
+                  style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;transition:opacity .15s"
+                  onMouseOver=${e => e.currentTarget.style.opacity='.8'}
+                  onMouseOut=${e => e.currentTarget.style.opacity='1'}>+ Nieuw</button>`
+              : html`<button onClick=${() => setShowAddProduct(true)}
+                  style="background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;transition:opacity .15s"
+                  onMouseOver=${e => e.currentTarget.style.opacity='.8'}
+                  onMouseOut=${e => e.currentTarget.style.opacity='1'}>+ Nieuw</button>`
+            }
+          </div>
+
+          <!-- Maaltijden lijst -->
+          ${libTab === 'maaltijden' && html`<div>
+            ${presets.length === 0 && html`
+              <div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">
+                Nog geen maaltijden opgeslagen.<br/>Maak er een via "+ Nieuw".
+              </div>`}
+            ${presets.map((preset, idx) => {
+              const totalKcal = preset.items.reduce((a, i) => a + i.calorieën, 0);
+              const totalP    = preset.items.reduce((a, i) => a + i.eiwitten, 0);
+              return html`
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < presets.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
+                  <div style="width:36px;height:36px;border-radius:10px;background:#85b0981a;border:1px solid #85b09830;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px">🍽</div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${preset.naam}</div>
+                    <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${Math.round(totalKcal)} kcal · E ${Math.round(totalP)}g · ${preset.items.length} items</div>
+                  </div>
+                  <button onClick=${() => handleLoadPreset(preset)}
+                    style="flex-shrink:0;background:#85b0981a;color:var(--p);border:1px solid #85b09840;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
+                    onMouseOver=${e => { e.currentTarget.style.background='var(--p)'; e.currentTarget.style.color='var(--bg)'; }}
+                    onMouseOut=${e => { e.currentTarget.style.background='#85b0981a'; e.currentTarget.style.color='var(--p)'; }}>
+                    + Log
+                  </button>
+                  <button onClick=${() => handleDeletePreset(idx)}
+                    style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+                    onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
+                    onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
+                </div>`
+            })}
+          </div>`}
+
+          <!-- Producten lijst -->
+          ${libTab === 'producten' && html`<div>
+            ${customProducts.length === 0 && html`
+              <div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">
+                Nog geen eigen producten.<br/>Voeg er een toe via "+ Nieuw".
+              </div>`}
+            ${customProducts.map((p, idx) => html`
+              <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < customProducts.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
+                <div style="width:36px;height:36px;border-radius:10px;background:#7fa4b81a;border:1px solid #7fa4b830;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px">📦</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.naam}</div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${Math.round(p.calorieën)} kcal · E ${Math.round(p.eiwitten)}g · K ${Math.round(p.koolhydraten)}g · V ${Math.round(p.vetten)}g</div>
+                </div>
+                <button onClick=${() => addItems([{ naam: p.naam, hoeveelheid: '100g', calorieën: p.calorieën, eiwitten: p.eiwitten, koolhydraten: p.koolhydraten, vetten: p.vetten }])}
+                  style="flex-shrink:0;background:#7fa4b81a;color:var(--c);border:1px solid #7fa4b840;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
+                  onMouseOver=${e => { e.currentTarget.style.background='var(--c)'; e.currentTarget.style.color='var(--bg)'; }}
+                  onMouseOut=${e => { e.currentTarget.style.background='#7fa4b81a'; e.currentTarget.style.color='var(--c)'; }}>
+                  + Log
+                </button>
+                <button onClick=${() => deleteCustomProduct(p.id)}
+                  style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+                  onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
+                  onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
+              </div>`)}
+          </div>`}
+
         </div>
-      `)}
-    </div>
-    `}
-</div>
       <hr class="divider"/>
 
         <!-- Log -->
         ${log.length > 0 && html`
           <div>
-            <div style="font-size:11px;color:var(--dim);margin-bottom:10px">
-              Vandaag — ${log.length} item${log.length!==1?'s':''}
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+              <div style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">
+                Vandaag · ${log.length} item${log.length!==1?'s':''}
+              </div>
+              <div class="mono" style="font-size:11px;color:var(--muted)">${Math.round(totals.calorieën)} kcal</div>
             </div>
             ${[...log].reverse().map(item => html`
               <${LogCard} key=${item.id} item=${item} onRemove=${()=>setLog(p=>p.filter(i=>i.id!==item.id))}/>`)}
