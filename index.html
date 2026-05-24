@@ -1323,25 +1323,27 @@ const deleteCustomProduct = (id) => {
   setAiError('');
   setAiBericht('');
   try {
-    const parts = [{ text: q }];
+    let response;
+    // Gebruik de oude, directe string-aanroep zolang er geen foto is
     if (uploadedImage) {
-      parts.push({ inlineData: { mimeType: uploadedImage.mimeType, data: uploadedImage.data } });
-      setUploadedImage(null); // reset na gebruik
+      const parts = [
+        { text: q },
+        { inlineData: { mimeType: uploadedImage.mimeType, data: uploadedImage.data } }
+      ];
+      setUploadedImage(null);
+      response = await callGemini(NUTRITION_SYSTEM, parts, 2048);
+    } else {
+      response = await callGemini(NUTRITION_SYSTEM, q, 2048);
     }
-    const response = await callGemini(NUTRITION_SYSTEM, parts, 2048);
-    try {
-      const parsed = parseGeminiJson(response);
-      addItems(parsed.items || []);
-      setAiBericht(parsed.bericht || '');
-    } catch {
-      const text = response.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-      setAiBericht(text);
-    }
+    const parsed = parseGeminiJson(response);
+    addItems(parsed.items || []);
+    setAiBericht(parsed.bericht || '');
     setAiQuery('');
   } catch (e) {
     setAiError('Fout: ' + (e.message || 'Probeer opnieuw.'));
   } finally {
     setAiLoading(false);
+    setTimeout(() => aiInputRef.current?.focus(), 50);
   }
 };
 
