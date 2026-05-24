@@ -976,6 +976,62 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
       </div>
     </div>`;
 }
+
+// ── Add Product Modal ────────────────────────────────────────────────────────
+function AddProductModal({ onClose, onSave }) {
+  const [naam, setNaam] = useState('');
+  const [kcal, setKcal] = useState('');
+  const [eiwit, setEiwit] = useState('');
+  const [koolh, setKoolh] = useState('');
+  const [vet, setVet] = useState('');
+
+  const handleSave = () => {
+    if (!naam.trim() || isNaN(parseFloat(kcal)) || isNaN(parseFloat(eiwit)) || isNaN(parseFloat(koolh)) || isNaN(parseFloat(vet))) return;
+    onSave({
+      naam: naam.trim(),
+      calorieën: parseFloat(kcal),
+      eiwitten: parseFloat(eiwit),
+      koolhydraten: parseFloat(koolh),
+      vetten: parseFloat(vet)
+    });
+    onClose();
+  };
+
+  return html`
+    <div class="modal-backdrop" onClick=${e => e.target === e.currentTarget && onClose()}>
+      <div class="modal-sheet slide-up" style="max-height:90vh;">
+        <div class="drag-handle"/>
+        <div style="padding:12px 16px 10px;display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:700;font-size:16px;">Eigen product toevoegen</div>
+          <button onClick=${onClose} style="background:var(--s2);border:1px solid var(--border);color:var(--muted);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;">×</button>
+        </div>
+        <div style="overflow-y:auto;flex:1;padding:0 16px 24px;">
+          <div style="margin-bottom:12px;">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Productnaam</div>
+            <input value=${naam} onInput=${e => setNaam(e.target.value)} class="field" placeholder="bijv. Franse halfvolle kwark" />
+          </div>
+          <div style="margin-bottom:12px;">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Calorieën (kcal per 100g)</div>
+            <input type="number" value=${kcal} onInput=${e => setKcal(e.target.value)} class="field mono" placeholder="74" />
+          </div>
+          <div style="margin-bottom:12px;">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Eiwitten (g per 100g)</div>
+            <input type="number" value=${eiwit} onInput=${e => setEiwit(e.target.value)} class="field mono" placeholder="7.5" />
+          </div>
+          <div style="margin-bottom:12px;">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Koolhydraten (g per 100g)</div>
+            <input type="number" value=${koolh} onInput=${e => setKoolh(e.target.value)} class="field mono" placeholder="3.9" />
+          </div>
+          <div style="margin-bottom:20px;">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Vetten (g per 100g)</div>
+            <input type="number" value=${vet} onInput=${e => setVet(e.target.value)} class="field mono" placeholder="3.1" />
+          </div>
+          <button onClick=${handleSave} disabled=${!naam.trim() || !kcal || !eiwit || !koolh || !vet}
+            class="btn" style="background:var(--p);">💾 Product opslaan</button>
+        </div>
+      </div>
+    </div>`;
+}
   
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
@@ -1006,6 +1062,7 @@ function App() {
   const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 100));
   const [presets, setPresets] = useState(() => loadPresets());
   const [customProducts, setCustomProducts] = useState(() => jget('ct_custom_products', []));
+  const [showAddProduct, setShowAddProduct] = useState(false);
   const [showMealBuilder, setShowMealBuilder] = useState(false);
   const [uploadedImage, setUploadedImage] = useState(null);
   const fileInputRef = useRef(null);
@@ -1165,45 +1222,46 @@ const deleteCustomProduct = (id) => {
       controller.abort(); // breek alle lopende requests af
     }, TOTAL_TIMEOUT_MS);
 
-    try {
+        try {
       const gevonden = [];
       const mislukt = [];
       const progressMessages = [];
       let serverError = false;
 
       for (let i = 0; i < cleans.length; i++) {
-        if (signal.aborted) break; // stop als timer is verlopen
+        if (signal.aborted) break;
 
         const { qty } = parsed[i];
         const term = termen[i];
         
-        // Update voortgang: bezig met deze term
         progressMessages.push(`Bezig met "${term}"...`);
         setOffPhaseMsg(progressMessages.join(' · '));
 
         try {
+          // 1. Eerst eigen producten matchen (altijd, onafhankelijk van API)
+          const customMatches = customProducts.filter(p =>
+            p.naam.toLowerCase().includes(cleans[i].toLowerCase())
+          );
+          if (customMatches.length) {
+            gevonden.push(...customMatches.map(p => ({
+              product: {
+                product_name: p.naam,
+                brands: 'Eigen product',
+                nutriments: {
+                  'energy-kcal_100g': p.calorieën,
+                  proteins_100g: p.eiwitten,
+                  carbohydrates_100g: p.koolhydraten,
+                  fat_100g: p.vetten
+                },
+                serving_size: null
+              },
+              qty
+            })));
+          }
+
+          // 2. Dan de API-resultaten ophalen en toevoegen
           const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1));
           if (prods.length > 0) {
-            // Eigen producten matchen
-const customMatches = customProducts.filter(p =>
-  p.naam.toLowerCase().includes(cleans[i].toLowerCase())
-);
-if (customMatches.length) {
-  gevonden.push(...customMatches.map(p => ({
-    product: {
-      product_name: p.naam,
-      brands: 'Eigen product',
-      nutriments: {
-        'energy-kcal_100g': p.calorieën,
-        proteins_100g: p.eiwitten,
-        carbohydrates_100g: p.koolhydraten,
-        fat_100g: p.vetten
-      },
-      serving_size: p.serving_size || null
-    },
-    qty
-  })));
-}
             gevonden.push(...prods.map(product => ({ product, qty })));
             progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} product(en) gevonden`;
           } else {
@@ -1216,20 +1274,17 @@ if (customMatches.length) {
           mislukt.push(term);
           progressMessages[progressMessages.length - 1] = `"${term}": fout bij ophalen`;
         }
-  
 
-        // Update UI met actuele voortgang
         setOffPhaseMsg(progressMessages.join(' · '));
       }
 
       clearTimeout(timeoutId);
 
-      // Eindmelding
       let errorMsg = mislukt.length
-  ? serverError
-    ? `Server tijdelijk niet beschikbaar voor: ${mislukt.map(t=>`"${t}"`).join(', ')} — probeer opnieuw.`
-    : `Niet gevonden: ${mislukt.map(t=>`"${t}"`).join(', ')} — controleer de spelling.`
-  : '';
+        ? serverError
+          ? `Server tijdelijk niet beschikbaar voor: ${mislukt.map(t=>`"${t}"`).join(', ')} — probeer opnieuw.`
+          : `Niet gevonden: ${mislukt.map(t=>`"${t}"`).join(', ')} — controleer de spelling.`
+        : '';
       if (timedOut) {
         errorMsg = 'Zoekopdracht gestopt na 15 seconden. ' + (errorMsg || '');
       }
@@ -1255,7 +1310,7 @@ if (customMatches.length) {
       setOffLoading(false);
       setOffPhaseMsg('');
     }
-  };
+    
   // ── AI beschrijven ────────────────────────────────────────────────────────
   const handleAISearch = async () => {
   const q = aiQuery.trim();
@@ -1329,6 +1384,7 @@ if (customMatches.length) {
   return html`<div>
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
         ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)}/>`}
+        ${showAddProduct && html`<${AddProductModal} onClose=${() => setShowAddProduct(false)} onSave=${addCustomProduct} />`}
 
     <!-- Search Modal -->
     ${showModal && html`
@@ -1467,19 +1523,7 @@ ${uploadedImage && html`<div style="margin-top:8px;font-size:11px;color:var(--mu
     <div style="display:flex;gap:8px;">
       <button onClick=${() => setShowMealBuilder(true)}
         style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;opacity:1;">+ Maaltijd</button>
-      <button onClick=${() => {
-        const naam = prompt('Productnaam:');
-        if (!naam) return;
-        const kcal = parseFloat(prompt('Calorieën per 100g:'));
-        if (isNaN(kcal)) return;
-        const eiwit = parseFloat(prompt('Eiwitten per 100g:'));
-        if (isNaN(eiwit)) return;
-        const koolh = parseFloat(prompt('Koolhydraten per 100g:'));
-        if (isNaN(koolh)) return;
-        const vet = parseFloat(prompt('Vetten per 100g:'));
-        if (isNaN(vet)) return;
-        addCustomProduct({ naam, calorieën: kcal, eiwitten: eiwit, koolhydraten: koolh, vetten: vet });
-      }}
+            <button onClick=${() => setShowAddProduct(true)}
         style="background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;opacity:1;">+ Product</button>
     </div>
   </div>
