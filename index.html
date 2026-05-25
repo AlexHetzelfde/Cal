@@ -1291,9 +1291,11 @@ function App() {
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showMealBuilder, setShowMealBuilder] = useState(false);
   const [workouts, setWorkouts] = useState([]);
+  const workoutsRef = useRef(workouts);
   const [customExercises, setCustomExercises] = useState([]);
 
 useEffect(() => { loadWorkouts().then(setWorkouts); }, []);
+useEffect(() => { workoutsRef.current = workouts; }, [workouts]);
 useEffect(() => { loadCustomExercises().then(setCustomExercises); }, []);
 useEffect(() => { loadPresets().then(setPresets); }, []);
 useEffect(() => {
@@ -1378,8 +1380,11 @@ useEffect(() => {
   await saveWorkouts(updated);
   setEditingWorkout(null);
   setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: true }));
-  // start spiergroep‑analyse (stap 3)
-  analyzeWorkoutMuscles(workoutData);
+
+  // Gebruik setTimeout om te wachten tot React de state heeft bijgewerkt
+  setTimeout(() => {
+    analyzeWorkoutMuscles(workoutData);
+  }, 0);
 };
   const handleDeleteWorkout = (id) => { const updated = workouts.filter(w => w.id !== id); setWorkouts(updated); saveWorkouts(updated); };
   const handleLogWorkout = async (workout) => {
@@ -1404,7 +1409,8 @@ useEffect(() => {
   try {
     const spiergroepen = await analyzeMuscles(workoutData.oefeningen);
     if (spiergroepen) {
-      const updated = workouts.map(w => w.id === workoutData.id ? { ...w, spiergroepen } : w);
+      const currentWorkouts = workoutsRef.current; // gebruik de ref
+      const updated = currentWorkouts.map(w => w.id === workoutData.id ? { ...w, spiergroepen } : w);
       setWorkouts(updated);
       await saveWorkouts(updated);
     }
