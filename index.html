@@ -957,7 +957,7 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
 
 
 // ── WorkoutCard ───────────────────────────────────────────────────────────────
-function WorkoutCard({ workout, onDelete, onEdit, onLog }) {
+function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis }) {
   const [open, setOpen] = useState(false);
   return html`
     <div style="background:var(--s1);border:1px solid ${open?'var(--p)':'var(--border)'};border-radius:12px;margin-bottom:10px;overflow:hidden;transition:border-color .2s">
@@ -990,6 +990,11 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog }) {
                 ${oe.isCustom && html`<div style="font-size:10px;color:var(--p);margin-top:2px">Eigen oefening</div>`}
               </div>
             </div>`)}
+                      ${loadingAnalysis && !workout.spiergroepen && html`
+            <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px; display:flex; align-items:center; gap:8px;">
+              <div class="spinner" style="border-top-color:var(--p);"/>
+              <span style="font-size:12px; color:var(--muted);">Spiergroepen analyseren…</span>
+            </div>`}
           ${workout.spiergroepen && workout.spiergroepen.length > 0 && html`
             <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px">
               <div class="section-label" style="margin-bottom:8px">Focus spiergroepen</div>
@@ -1274,6 +1279,7 @@ useEffect(() => {
   const [editingWorkout, setEditingWorkout] = useState(null);
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [progressView, setProgressView] = useState('voeding');
+  const [analysisLoading, setAnalysisLoading] = useState({});
   const [libTab, setLibTab] = useState('maaltijden');
   const [uploadedImage, setUploadedImage] = useState(null);
   const fileInputRef = useRef(null);
@@ -1343,6 +1349,7 @@ useEffect(() => {
   setWorkouts(updated);
   await saveWorkouts(updated);
   setEditingWorkout(null);
+  setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: true }));
   // start spiergroep‑analyse (stap 3)
   analyzeWorkoutMuscles(workoutData);
 };
@@ -1362,12 +1369,19 @@ useEffect(() => {
   const addCustomProduct = (product) => setCustomProducts(prev => [...prev, { ...product, id: Date.now() + Math.random() }]);
   const deleteCustomProduct = (id) => setCustomProducts(prev => prev.filter(p => p.id !== id));
   const analyzeWorkoutMuscles = async (workoutData) => {
-  if (!workoutData.oefeningen || workoutData.oefeningen.length === 0) return;
-  const spiergroepen = await analyzeMuscles(workoutData.oefeningen);
-  if (spiergroepen) {
-    const updated = workouts.map(w => w.id === workoutData.id ? { ...w, spiergroepen } : w);
-    setWorkouts(updated);
-    await saveWorkouts(updated);
+  if (!workoutData.oefeningen || workoutData.oefeningen.length === 0) {
+    setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: false }));
+    return;
+  }
+  try {
+    const spiergroepen = await analyzeMuscles(workoutData.oefeningen);
+    if (spiergroepen) {
+      const updated = workouts.map(w => w.id === workoutData.id ? { ...w, spiergroepen } : w);
+      setWorkouts(updated);
+      await saveWorkouts(updated);
+    }
+  } finally {
+    setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: false }));
   }
 };
 
@@ -1672,7 +1686,7 @@ async function analyzeMuscles(exercises) {
           </button>
         </div>
         ${workouts.length === 0 && html`<div style="text-align:center;color:var(--border);padding:32px 20px;font-size:13px"><div style="font-size:30px;margin-bottom:10px">🏋️</div>Nog geen workouts opgeslagen</div>`}
-        ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout} onEdit=${(workout) => { setEditingWorkout(workout); setShowWorkoutBuilder(true); }} onLog=${handleLogWorkout} />`)}
+        ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout} onEdit=${(workout) => { setEditingWorkout(workout); setShowWorkoutBuilder(true); }} onLog=${handleLogWorkout} loadingAnalysis=${analysisLoading[w.id]} />`)}
 
                 <!-- Eigen oefeningen bibliotheek -->
         <div class="card" style="margin-top:8px;border-top:2px solid #85b09835">
