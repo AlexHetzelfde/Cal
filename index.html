@@ -1011,10 +1011,6 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analys
             <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px; color:var(--danger); font-size:12px;">
               ${analysisError}
             </div>`}
-                      ${analysisError && !workout.spiergroepen && html`
-            <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px; color:var(--danger); font-size:12px;">
-              ${analysisError}
-            </div>`}
           ${workout.spiergroepen && workout.spiergroepen.length > 0 && html`
             <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px">
               <div class="section-label" style="margin-bottom:8px">Focus spiergroepen</div>
@@ -1300,7 +1296,6 @@ useEffect(() => {
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [progressView, setProgressView] = useState('voeding');
   const [analysisLoading, setAnalysisLoading] = useState({});
-  const [analysisErrors, setAnalysisErrors] = useState({});
   const [analysisErrors, setAnalysisErrors] = useState({});
   const [libTab, setLibTab] = useState('maaltijden');
   const [uploadedImage, setUploadedImage] = useState(null);
