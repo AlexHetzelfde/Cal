@@ -1011,6 +1011,10 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analys
             <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px; color:var(--danger); font-size:12px;">
               ${analysisError}
             </div>`}
+                      ${analysisError && !workout.spiergroepen && html`
+            <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px; color:var(--danger); font-size:12px;">
+              ${analysisError}
+            </div>`}
           ${workout.spiergroepen && workout.spiergroepen.length > 0 && html`
             <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px">
               <div class="section-label" style="margin-bottom:8px">Focus spiergroepen</div>
@@ -1297,6 +1301,7 @@ useEffect(() => {
   const [progressView, setProgressView] = useState('voeding');
   const [analysisLoading, setAnalysisLoading] = useState({});
   const [analysisErrors, setAnalysisErrors] = useState({});
+  const [analysisErrors, setAnalysisErrors] = useState({});
   const [libTab, setLibTab] = useState('maaltijden');
   const [uploadedImage, setUploadedImage] = useState(null);
   const fileInputRef = useRef(null);
@@ -1398,7 +1403,7 @@ useEffect(() => {
       await saveWorkouts(updated);
     }
   } catch (e) {
-    setAnalysisErrors(prev => ({ ...prev, [workoutData.id]: e.message || 'Onbekende fout bij spieranalyse' }));
+    setAnalysisErrors(prev => ({ ...prev, [workoutData.id]: e.message || 'Onbekende fout' }));
   } finally {
     setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: false }));
   }
@@ -1493,18 +1498,27 @@ De percentages moeten bij benadering optellen tot 100.`;
 async function analyzeMuscles(exercises) {
   if (!getKey()) return null;
   const names = exercises.map(e => e.naam).join(', ');
+
+  let data;
   try {
-    const data = await callGemini(MUSCLE_ANALYSIS_SYSTEM, names, 1024);
+    data = await callGemini(MUSCLE_ANALYSIS_SYSTEM, names, 1024);
+  } catch (e) {
+    console.warn('API call mislukt:', e);
+    throw e;
+  }
+
+  // Haal ruwe antwoordtekst op
+  const raw = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+
+  try {
     const parsed = parseGeminiJson(data);
     if (!parsed || !parsed.spiergroepen) {
-      // Haal ruwe tekst op voor de foutmelding
-      const raw = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-      throw new Error('Ongeldige JSON ontvangen. Ruwe respons: ' + raw);
+      throw new Error('Ongeldige JSON-structuur. Ruwe respons: ' + raw);
     }
     return parsed.spiergroepen;
   } catch (e) {
     console.warn('Spieranalyse mislukt:', e);
-    throw e; // gooi door zodat analyzeWorkoutMuscles de foutmelding kan tonen
+    throw new Error('Spieranalyse mislukt: ' + (e.message || 'onbekend') + '\nRuwe respons: ' + raw);
   }
 }
 
@@ -1713,7 +1727,6 @@ async function analyzeMuscles(exercises) {
         </div>
         ${workouts.length === 0 && html`<div style="text-align:center;color:var(--border);padding:32px 20px;font-size:13px"><div style="font-size:30px;margin-bottom:10px">🏋️</div>Nog geen workouts opgeslagen</div>`}
         ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout} onEdit=${(workout) => { setEditingWorkout(workout); setShowWorkoutBuilder(true); }} onLog=${handleLogWorkout} loadingAnalysis=${analysisLoading[w.id]} analysisError=${analysisErrors[w.id]} />`)}
-
                 <!-- Eigen oefeningen bibliotheek -->
         <div class="card" style="margin-top:8px;border-top:2px solid #85b09835">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
