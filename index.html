@@ -235,10 +235,9 @@ function parseServingSize(raw) {
 }
 
 // ── AI prompts ─────────────────────────────────────────────────────────────────
-const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSON:
-{"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
-Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
-
+const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN het volgende JSON‑formaat, zonder uitleg:
+{"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort Nederlands bericht"}
+Gebruik realistische gemiddelde portiewaarden. GEEN andere tekst.`;
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 const MODEL_LIMITS = {
@@ -288,16 +287,14 @@ const parseGeminiJson = (data) => {
       return JSON.parse(clean);
     } catch {}
   }
-  // Als de JSON is afgekapt, probeer te repareren
+  // Repareer afgekapte JSON
   if (start !== -1 && (end === -1 || end <= start)) {
     let fixed = clean.slice(start);
-    // Sluit eventueel ontbrekende aanhalingstekens
     if (fixed.endsWith('"')) {
       fixed = fixed.slice(0, -1) + '"}';
     } else if (fixed.endsWith(',')) {
       fixed = fixed.slice(0, -1);
     }
-    // Voeg ontbrekende } ] } toe
     if (!fixed.endsWith('}')) {
       fixed += '}';
     }
@@ -305,9 +302,8 @@ const parseGeminiJson = (data) => {
       return JSON.parse(fixed);
     } catch {}
   }
-  throw new Error('Geen geldige JSON ontvangen.');
+  throw new Error('Geen geldige JSON ontvangen. Ruwe respons: ' + text);
 };
-
 // ── Rate Limit Tracker ─────────────────────────────────────────────────────
 const USAGE_KEY = 'ct_usage';
 const getUsageLog = () => { try { return JSON.parse(localStorage.getItem(USAGE_KEY)) || []; } catch { return []; } };
@@ -1491,9 +1487,9 @@ useEffect(() => {
       if (uploadedImage) {
         const parts = [{ text: q }, { inlineData: { mimeType: uploadedImage.mimeType, data: uploadedImage.data } }];
         setUploadedImage(null);
-        response = await callGemini(NUTRITION_SYSTEM, parts, 2048);
+        response = await callGemini(NUTRITION_SYSTEM, parts, 4096);
       } else {
-        response = await callGemini(NUTRITION_SYSTEM, q, 2048);
+        response = await callGemini(NUTRITION_SYSTEM, q, 4096);
       }
       const parsed = parseGeminiJson(response);
       addItems(parsed.items || []);
