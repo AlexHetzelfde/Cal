@@ -279,10 +279,22 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
 
 const parseGeminiJson = (data) => {
   const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-  const clean = text.replace(/```json|```/g, '').trim();
-  const start = clean.indexOf('{'), end = clean.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new Error('Geen geldige JSON ontvangen.');
-  return JSON.parse(clean.slice(start, end + 1));
+  // Haal alle ```json ... ``` of ``` ... ``` blokken weg
+  let clean = text.replace(/```json|```/g, '').trim();
+  // Zoek naar het eerste '{' en het laatste '}'
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    clean = clean.slice(start, end + 1);
+    try {
+      return JSON.parse(clean);
+    } catch {}
+  }
+  // Als dat niet lukt, probeer de hele string als JSON te parsen
+  try {
+    return JSON.parse(clean);
+  } catch {}
+  throw new Error('Geen geldige JSON ontvangen.');
 };
 
 // ── Rate Limit Tracker ─────────────────────────────────────────────────────
@@ -1467,13 +1479,13 @@ useEffect(() => {
     finally { setAiLoading(false); setTimeout(() => aiInputRef.current?.focus(), 50); }
   };
 
-  const MUSCLE_ANALYSIS_SYSTEM = `Je bent een sportwetenschapper. Gegeven een lijst oefeningen, geef ALLEEN JSON: {"spiergroepen":[{"naam":"string","percentage":number}]}. De percentages moeten optellen tot 100. Focus op de 5 meest belaste spiergroepen. ALLEEN JSON.`;
+  const MUSCLE_ANALYSIS_SYSTEM = `Je bent een sportwetenschapper. Geef voor de onderstaande oefeningen de 5 meest belaste spiergroepen. Antwoord ALLEEN met JSON in dit formaat: {"spiergroepen":[{"naam":"spiergroep","percentage":getal}]}. De percentages moeten bij benadering optellen tot 100.`;
 
 async function analyzeMuscles(exercises) {
   if (!getKey()) return null;
   const names = exercises.map(e => e.naam).join(', ');
   try {
-    const data = await callGemini(MUSCLE_ANALYSIS_SYSTEM, names, 500);
+    const data = await callGemini(MUSCLE_ANALYSIS_SYSTEM, names, 1024);
     const parsed = parseGeminiJson(data);
     return parsed.spiergroepen || null;
   } catch (e) {
