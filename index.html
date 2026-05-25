@@ -70,17 +70,13 @@
     .scanner-frame-bl { bottom:0;left:0;border-width:0 0 3px 3px;border-radius:0 0 0 4px; }
     .scanner-line { position: absolute; left: 4px; right: 4px; height: 2px; background: linear-gradient(90deg, transparent, var(--p), transparent); animation: scanline 2s ease-in-out infinite; }
     .pill { border-radius: 20px; padding: 5px 12px; font-size: 11px; cursor: pointer; transition: all .15s; font-family: 'JetBrains Mono', monospace; white-space: nowrap; line-height: 1; }
-    /* Modal backdrop */
     .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.65); backdrop-filter: blur(3px); animation: backdropIn .2s ease; }
-    /* Modal bottom sheet */
     .modal-sheet { position: fixed; bottom: 0; left: 0; right: 0; z-index: 51; background: var(--s1); border-radius: 20px 20px 0 0; border: 1px solid var(--border); border-bottom: none; max-height: 85vh; display: flex; flex-direction: column; }
-    /* Product row inside modal */
     .product-row { background: var(--s2); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 7px; overflow: hidden; transition: border-color .15s; }
     .product-row.expanded { border-color: var(--c); }
     .product-row-header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; user-select: none; }
     .product-row-header:active { background: rgba(255,255,255,.03); }
     .product-row-body { border-top: 1px solid var(--border); padding: 13px 14px; animation: fadeUp .18s ease; }
-    /* Drag handle */
     .drag-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 10px auto 0; }
     .icon-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; width: 42px; height: 42px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; flex-shrink: 0; }
     .icon-btn:hover { border-color: var(--text); color: var(--text); }
@@ -106,7 +102,28 @@ const loadPresets = () => jget('ct_presets', []);
 const savePresets = (presets) => jset('ct_presets', presets);
 const loadWorkouts = () => jget('ct_workouts', []);
 const saveWorkouts = (w) => jset('ct_workouts', w);
+const loadCustomExercises = () => jget('ct_custom_exercises', []);
+const saveCustomExercises = (ex) => jset('ct_custom_exercises', ex);
 const DEFAULT_GOALS = { calorieën: 2800, eiwitten: 150, koolhydraten: 200, vetten: 65 };
+
+// ── Image resize helper (houdt localStorage klein) ────────────────────────────
+const resizeImage = (dataUrl, maxWidth = 500, maxHeight = 500, quality = 0.75) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxWidth) { height = Math.round(height * maxWidth / width); width = maxWidth; }
+      if (height > maxHeight) { width = Math.round(width * maxHeight / height); height = maxHeight; }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+};
 
 // ── Qty extractor ─────────────────────────────────────────────────────────────
 const QTY_RE = /^(\d+(?:[.,]\d+)?)\s*(g|gr|gram|kg|ml|l|liter|stuks?|st|x)?\s*/i;
@@ -133,7 +150,6 @@ const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN valide JSO
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort vriendelijk Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. ALLEEN JSON, niets anders.`;
 
-
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 const MODEL_LIMITS = {
@@ -148,17 +164,12 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
   const k = getKey();
   if (!k) throw new Error('Voer eerst je Gemini API key in via Instellingen.');
   for (const model of MODELS) {
-    // ═══ CONTROLE LIMIETEN ═══
-    if (!rateLimitTracker.canMakeRequest(model)) {
-      // Ga naar volgende model als deze over limiet zit
-      continue;
-    }
-
+    if (!rateLimitTracker.canMakeRequest(model)) continue;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${k}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+          body: JSON.stringify({
             system_instruction: { parts: [{ text: systemText }] },
             contents: [{ role: 'user', parts: typeof userText === 'string' ? [{ text: userText }] : userText }],
             generationConfig: { maxOutputTokens: maxTokens }
@@ -166,16 +177,11 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
         }
       );
       const data = await res.json();
-      const overloaded = data.error?.code === 429
-        || data.error?.status === 'RESOURCE_EXHAUSTED'
-        || data.error?.status === 'UNAVAILABLE';
+      const overloaded = data.error?.code === 429 || data.error?.status === 'RESOURCE_EXHAUSTED' || data.error?.status === 'UNAVAILABLE';
       if (overloaded) { await sleep(1000 * Math.pow(2, attempt)); continue; }
       if (data.error) throw new Error(data.error.message);
-
-      // ═══ GEBRUIK LOGGEN ═══
       const tokens = data.usageMetadata?.totalTokenCount ?? 0;
       rateLimitTracker.logUsage(model, tokens);
-
       return data;
     }
   }
@@ -192,111 +198,71 @@ const parseGeminiJson = (data) => {
 
 // ── Rate Limit Tracker ─────────────────────────────────────────────────────
 const USAGE_KEY = 'ct_usage';
-
-const getUsageLog = () => {
-  try { return JSON.parse(localStorage.getItem(USAGE_KEY)) || []; } catch { return []; }
-};
+const getUsageLog = () => { try { return JSON.parse(localStorage.getItem(USAGE_KEY)) || []; } catch { return []; } };
 const setUsageLog = (log) => localStorage.setItem(USAGE_KEY, JSON.stringify(log));
-
-const cleanLog = (log, maxAgeMs) => {
-  const now = Date.now();
-  return log.filter(e => (now - e.ts) < maxAgeMs);
-};
+const cleanLog = (log, maxAgeMs) => { const now = Date.now(); return log.filter(e => (now - e.ts) < maxAgeMs); };
 
 const rateLimitTracker = {
   canMakeRequest(model) {
     const limits = MODEL_LIMITS[model];
-    if (!limits) return true; // onbekend model, geen beperking
-    const now = Date.now();
+    if (!limits) return true;
     let log = getUsageLog();
-
-    // opruimen
-    log = cleanLog(log, 24 * 60 * 60 * 1000); // ouder dan 1 dag weg
-    const minuteLog = cleanLog(log, 60_000);  // laatste minuut
+    log = cleanLog(log, 24 * 60 * 60 * 1000);
+    const minuteLog = cleanLog(log, 60_000);
     const dayLog = cleanLog(log, 24 * 60 * 60 * 1000);
-
     const rpmUsed = minuteLog.filter(e => e.model === model).length;
     const rpdUsed = dayLog.filter(e => e.model === model).length;
-    const tpmUsed = minuteLog
-      .filter(e => e.model === model)
-      .reduce((sum, e) => sum + (e.tokens || 0), 0);
-
+    const tpmUsed = minuteLog.filter(e => e.model === model).reduce((sum, e) => sum + (e.tokens || 0), 0);
     if (rpmUsed >= limits.rpm) return false;
     if (rpdUsed >= limits.rpd) return false;
     if (tpmUsed >= limits.tpm) return false;
     return true;
   },
-
   logUsage(model, tokens) {
     const log = getUsageLog();
     log.push({ model, tokens: tokens || 0, ts: Date.now() });
-    // bewaar alleen de laatste 24 uur om localStorage niet te laten exploderen
-    const cleaned = cleanLog(log, 24 * 60 * 60 * 1000);
-    setUsageLog(cleaned);
+    setUsageLog(cleanLog(log, 24 * 60 * 60 * 1000));
   },
-
   getStats() {
-    const now = Date.now();
     const log = getUsageLog();
     const minuteLog = cleanLog(log, 60_000);
     const dayLog = cleanLog(log, 24 * 60 * 60 * 1000);
-
-    // Tel per model en overall
     const stats = { rpm: {}, rpd: {}, tpm: {} };
     for (const model of Object.keys(MODEL_LIMITS)) {
       stats.rpm[model] = minuteLog.filter(e => e.model === model).length;
       stats.rpd[model] = dayLog.filter(e => e.model === model).length;
-      stats.tpm[model] = minuteLog
-        .filter(e => e.model === model)
-        .reduce((sum, e) => sum + (e.tokens || 0), 0);
+      stats.tpm[model] = minuteLog.filter(e => e.model === model).reduce((sum, e) => sum + (e.tokens || 0), 0);
     }
     return stats;
   },
-
-  reset() {
-    setUsageLog([]);
-  }
+  reset() { setUsageLog([]); }
 };
 
-// Polyfill voor oudere Safari (< 17.4)
 if (!AbortSignal.any) {
   AbortSignal.any = function(...signals) {
     const controller = new AbortController();
-    const onAbort = () => {
-      controller.abort();
-      for (const s of signals) {
-        if (s) s.removeEventListener('abort', onAbort);
-      }
-    };
+    const onAbort = () => { controller.abort(); for (const s of signals) { if (s) s.removeEventListener('abort', onAbort); } };
     for (const s of signals) {
       if (!s) continue;
-      if (s.aborted) {
-        controller.abort();
-        break;
-      }
+      if (s.aborted) { controller.abort(); break; }
       s.addEventListener('abort', onAbort, { once: true });
     }
     return controller.signal;
   };
 }
-  
+
 // ── OFF ───────────────────────────────────────────────────────────────────────
 const timedFetch = (url, signal, ms = 20000) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ms);
-
-  // Combineer de externe signal met onze lokale
-  const combinedSignal = signal
-    ? AbortSignal.any([signal, controller.signal])
-    : controller.signal;
-
+  const combinedSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   return fetch(url, { signal: combinedSignal }).finally(() => clearTimeout(timeoutId));
 };
 
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
 
 const SEARCH_CACHE_KEY = 'ct_search_cache';
-const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 uur
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 const CF_USAGE_KEY = 'ct_cf_usage';
 
 const getCFUsage = () => {
@@ -306,12 +272,7 @@ const getCFUsage = () => {
     return data;
   } catch { return { date: TODAY(), count: 0 }; }
 };
-
-const incrementCFUsage = () => {
-  const data = getCFUsage();
-  data.count = (data.count || 0) + 1;
-  localStorage.setItem(CF_USAGE_KEY, JSON.stringify(data));
-};
+const incrementCFUsage = () => { const data = getCFUsage(); data.count = (data.count || 0) + 1; localStorage.setItem(CF_USAGE_KEY, JSON.stringify(data)); };
 
 const getCachedResults = (term) => {
   try {
@@ -322,7 +283,6 @@ const getCachedResults = (term) => {
     return entry.results;
   } catch { return null; }
 };
-
 const setCachedResults = (term, results) => {
   try {
     const cache = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || '{}');
@@ -332,86 +292,53 @@ const setCachedResults = (term, results) => {
 };
 
 const NL_EN = {
-  walnoten:'walnuts', amandelen:'almonds', hazelnoten:'hazelnuts',
-  cashewnoten:'cashews', pindas:'peanuts', rozijnen:'raisins',
-  havermout:'oatmeal', kwark:'quark', melk:'milk', boter:'butter',
-  kaas:'cheese', eieren:'eggs', kip:'chicken', rijst:'rice',
-  brood:'bread', honing:'honey', suiker:'sugar', bloem:'flour',
-  aardappelen:'potatoes', tomaten:'tomatoes', uien:'onions',
-  wortelen:'carrots', spinazie:'spinach', zalm:'salmon', tonijn:'tuna',
+  walnoten:'walnuts', amandelen:'almonds', hazelnoten:'hazelnuts', cashewnoten:'cashews',
+  pindas:'peanuts', rozijnen:'raisins', havermout:'oatmeal', kwark:'quark', melk:'milk',
+  boter:'butter', kaas:'cheese', eieren:'eggs', kip:'chicken', rijst:'rice', brood:'bread',
+  honing:'honey', suiker:'sugar', bloem:'flour', aardappelen:'potatoes', tomaten:'tomatoes',
+  uien:'onions', wortelen:'carrots', spinazie:'spinach', zalm:'salmon', tonijn:'tuna',
   chocolade:'chocolate', noten:'nuts', spek:'bacon', worst:'sausage'
 };
 
 function scoreProduct(product, query) {
-  if (!product.nutriments) return -1;   // ← deze regel toevoegen
+  if (!product.nutriments) return -1;
   const n = product.nutriments;
-  const heeftMacros =
-    getKcal100g(n) > 0 &&
-    n['proteins_100g'] != null &&
-    n['carbohydrates_100g'] != null &&
-    n['fat_100g'] != null;
+  const heeftMacros = getKcal100g(n) > 0 && n['proteins_100g'] != null && n['carbohydrates_100g'] != null && n['fat_100g'] != null;
   if (!heeftMacros) return -1;
-
   const naam = (product.product_name || '').toLowerCase();
-  const merk = Array.isArray(product.brands)
-    ? product.brands.join(', ').toLowerCase()
-    : (product.brands || '').toLowerCase();
+  const merk = Array.isArray(product.brands) ? product.brands.join(', ').toLowerCase() : (product.brands || '').toLowerCase();
   const combined = naam + ' ' + merk;
   const woorden = query.toLowerCase().split(' ').filter(w => w.length >= 2);
   const treffers = woorden.filter(w => combined.includes(w));
-
   const minMatches = woorden.length >= 3 ? 2 : 1;
   if (treffers.length < minMatches) return -1;
-
   let score = treffers.length * 10;
   if (naam === query.toLowerCase()) score += 50;
   else if (naam.startsWith(query.toLowerCase())) score += 30;
   if (merk && woorden.some(w => merk.includes(w))) score += 15;
   if (product.serving_size) score += 5;
-
   return score;
 }
 
 const fetchV1Search = async (term, signal, size = 50) => {
   if (signal?.aborted) return [];
-  const url =
-    `https://world.openfoodfacts.org/cgi/search.pl` +
-    `?search_terms=${encodeURIComponent(term)}` +
-    `&json=1` +
-    `&fields=product_name,brands,nutriments,serving_size` +
-    `&page_size=${size}`;
+  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,brands,nutriments,serving_size&page_size=${size}`;
   try {
     const res = await timedFetch(url, signal, 6000);
     if (!res.ok) return [];
     const data = await res.json();
-    const products = data.products || [];
-    // Zorg dat brands altijd een string is (V1 geeft soms string, soms array; scoreProduct kan beide aan)
-    return products.map(p => ({
-      ...p,
-      brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || ''),
-    }));
-  } catch {
-    return [];
-  }
+    return (data.products || []).map(p => ({ ...p, brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || '') }));
+  } catch { return []; }
 };
 
 const searchALicious = async (q, signal, size = 100, onRequest) => {
   if (!q || q.length < 2) return [];
-
   const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
   if (words.length === 0) return [];
-
   let allProducts = [];
-
-  // ── Interne fetchSearch (Search‑a‑licious via proxy) ──
   const fetchSearch = async (term) => {
     if (signal?.aborted) return [];
-    const url =
-      `https://off-proxy.mightygamer500.workers.dev/search` +
-      `?q=${encodeURIComponent(term)}` +
-      `&fields=product_name,brands,nutriments,serving_size` +
-      `&page_size=${size}` +
-      `&sort_by=unique_scans_n`;
+    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,brands,nutriments,serving_size&page_size=${size}&sort_by=unique_scans_n`;
     try {
       const res = await timedFetch(url, signal, 6000);
       if (!res.ok) return [];
@@ -420,135 +347,43 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
       return data.hits || [];
     } catch { return []; }
   };
-
-  // ── Interne fetchV1Search (oude V1‑API) ──
-  const fetchV1Search = async (term) => {
-    if (signal?.aborted) return [];
-    const url =
-      `https://world.openfoodfacts.org/cgi/search.pl` +
-      `?search_terms=${encodeURIComponent(term)}` +
-      `&json=1` +
-      `&fields=product_name,brands,nutriments,serving_size` +
-      `&page_size=${size}`;
-    try {
-      const res = await timedFetch(url, signal, 6000);
-      if (!res.ok) return [];
-      const data = await res.json();
-      const products = data.products || [];
-      return products.map(p => ({
-        ...p,
-        brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || ''),
-      }));
-    } catch {
-      return [];
-    }
-  };
-
-  // ── helper: bepaalt of product volledige macro's heeft ──
-  const heeftMacros = (p) => {
-    const n = p.nutriments;
-    return n && getKcal100g(n) > 0 &&
-           n['proteins_100g'] != null &&
-           n['carbohydrates_100g'] != null &&
-           n['fat_100g'] != null;
-  };
-
-  // ── Strategie 1: beide indexen tegelijk raadplegen ──────────────────────
-  const [hitsSA, hitsV1] = await Promise.all([
-    fetchSearch(q),
-    fetchV1Search(q)
-  ]);
+  const heeftMacros = (p) => { const n = p.nutriments; return n && getKcal100g(n) > 0 && n['proteins_100g'] != null && n['carbohydrates_100g'] != null && n['fat_100g'] != null; };
+  const [hitsSA, hitsV1] = await Promise.all([fetchSearch(q), fetchV1Search(q, signal, size)]);
   if (hitsSA.length) allProducts = [...allProducts, ...hitsSA];
   if (hitsV1.length) allProducts = [...allProducts, ...hitsV1];
-
-  // ── Strategie 2: per woord (fallback) ──────────────────────────────────
   if (allProducts.filter(heeftMacros).length < 3 && !signal?.aborted) {
     for (const w of words) {
-      const [sa, v1] = await Promise.all([
-        fetchSearch(w),
-        fetchV1Search(w)
-      ]);
+      const [sa, v1] = await Promise.all([fetchSearch(w), fetchV1Search(w, signal, size)]);
       if (sa.length) allProducts = [...allProducts, ...sa];
       if (v1.length) allProducts = [...allProducts, ...v1];
     }
   }
-
-  // ── Strategie 3: NL → EN vertaling (fallback) ──────────────────────────
   const translatedWords = words.map(w => NL_EN[w] || w).join(' ');
   if (translatedWords !== q && allProducts.filter(heeftMacros).length < 3 && !signal?.aborted) {
-    const [sa, v1] = await Promise.all([
-      fetchSearch(translatedWords),
-      fetchV1Search(translatedWords)
-    ]);
+    const [sa, v1] = await Promise.all([fetchSearch(translatedWords), fetchV1Search(translatedWords, signal, size)]);
     if (sa.length) allProducts = [...allProducts, ...sa];
     if (v1.length) allProducts = [...allProducts, ...v1];
   }
-
-  // ── Dedupliceren ──────────────────────────────────────────────────────
   const seen = new Set();
-  allProducts = allProducts.filter(p => {
-    const key = p.product_name?.toLowerCase();
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  const gesorteerd = allProducts
-    .map(p => ({ p, score: scoreProduct(p, q) }))
-    .filter(x => x.score >= 0)
-    .sort((a, b) => b.score - a.score)
-    .map(x => x.p);
-
+  allProducts = allProducts.filter(p => { const key = p.product_name?.toLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; });
+  const gesorteerd = allProducts.map(p => ({ p, score: scoreProduct(p, q) })).filter(x => x.score >= 0).sort((a, b) => b.score - a.score).map(x => x.p);
   if (gesorteerd.length > 0) setCachedResults(q, gesorteerd);
   return gesorteerd;
 };
+
 const offBarcode = async (barcode, signal) => {
   const hasNutriments = (product) => product && product.nutriments;
-  const isValid = (data) =>
-    (data.status === 1 || data.status === 'success' || data.status_verbose === 'product found') &&
-    hasNutriments(data.product);
-
-  // V3
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v3/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
-      signal
-    );
-    const data = await res.json();
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  // V2
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v2/product/${barcode}?fields=product_name,brands,nutriments,serving_size`,
-      signal
-    );
-    const data = await res.json();
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  // V1
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v1/product/${barcode}.json`,
-      signal
-    );
-    const data = await res.json();
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
-  // V0
-  try {
-    const res = await timedFetch(
-      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
-      signal
-    );
-    const data = await res.json();
-    // V0 heeft vaak status_verbose
-    if (isValid(data)) return data.product;
-  } catch (e) {}
-
+  const isValid = (data) => (data.status === 1 || data.status === 'success' || data.status_verbose === 'product found') && hasNutriments(data.product);
+  for (const version of ['v3', 'v2', 'v1', 'v0']) {
+    try {
+      const url = version === 'v0'
+        ? `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`
+        : `https://world.openfoodfacts.org/api/${version}/product/${barcode}?fields=product_name,brands,nutriments,serving_size`;
+      const res = await timedFetch(url, signal);
+      const data = await res.json();
+      if (isValid(data)) return data.product;
+    } catch {}
+  }
   return null;
 };
 
@@ -564,14 +399,26 @@ const loadExerciseDB = async () => {
   return exerciseDB;
 };
 
-const searchExercises = async (term) => {
-  const db = await loadExerciseDB();
+// ── Zoek in zowel de online DB als eigen oefeningen ─────────────────────────
+const searchExercises = async (term, customExercises = []) => {
   const q = term.toLowerCase();
-  return db
+
+  // Eigen oefeningen altijd zoeken (offline, altijd snel)
+  const customMatches = customExercises
     .filter(e => e.name.toLowerCase().includes(q))
-    .slice(0, 8);
+    .map(e => ({ ...e, isCustom: true }));
+
+  // Online DB
+  let dbResults = [];
+  try {
+    const db = await loadExerciseDB();
+    dbResults = db.filter(e => e.name.toLowerCase().includes(q)).slice(0, 8);
+  } catch {}
+
+  // Eigen oefeningen eerst tonen
+  return [...customMatches, ...dbResults].slice(0, 12);
 };
-  
+
 // ── Ring ──────────────────────────────────────────────────────────────────────
 function Ring({ value, goal, label, color }) {
   const r = 26, c = 2 * Math.PI * r, pct = Math.min(value / goal, 1), over = value > goal;
@@ -619,48 +466,28 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
   const n = product.nutriments;
   const rawServing = product.serving_size || '';
   const servingGrams = parseServingSize(rawServing);
-
   const [qty, setQty] = useState(() => initialQty || servingGrams || 100);
   const [done, setDone] = useState(false);
-
   const f = qty / 100;
   const cal100 = Math.round(getKcal100g(n));
-  const cal    = Math.round(getKcal100g(n) * f);
-
-  const MULTIPLIERS  = [1, 2, 3, 5];
-  const QUICK_SIZES  = [25, 50, 100, 150, 200];
-
-  const pillStyle = (active) =>
-    `background:${active ? 'var(--c)' : 'var(--s1)'};color:${active ? 'var(--bg)' : 'var(--muted)'};border:1px solid ${active ? 'var(--c)' : 'var(--border)'};border-radius:20px;padding:5px 12px;font-size:11px;cursor:pointer;transition:all .15s;font-family:'JetBrains Mono',monospace;white-space:nowrap;line-height:1`;
-
+  const cal = Math.round(getKcal100g(n) * f);
+  const MULTIPLIERS = [1, 2, 3, 5];
+  const QUICK_SIZES = [25, 50, 100, 150, 200];
+  const pillStyle = (active) => `background:${active ? 'var(--c)' : 'var(--s1)'};color:${active ? 'var(--bg)' : 'var(--muted)'};border:1px solid ${active ? 'var(--c)' : 'var(--border)'};border-radius:20px;padding:5px 12px;font-size:11px;cursor:pointer;transition:all .15s;font-family:'JetBrains Mono',monospace;white-space:nowrap;line-height:1`;
   const servingLabel = (() => {
     if (!servingGrams) return null;
     const cleaned = rawServing.trim();
     const isJustGrams = /^(\d+(?:[.,]\d+)?)\s*(?:g|ml)$/i.test(cleaned);
     return isJustGrams ? `1 portie · ${servingGrams}g` : `1 portie · ${servingGrams}g (${cleaned})`;
   })();
-
-  const add = () => {
-    onAdd(product, qty);
-    setDone(true);
-    setTimeout(() => setDone(false), 1800);
-  };
-
+  const add = () => { onAdd(product, qty); setDone(true); setTimeout(() => setDone(false), 1800); };
   return html`
     <div class=${'product-row' + (expanded ? ' expanded' : '')}>
-
-      <!-- Collapsed header (always visible) -->
       <div class="product-row-header" onClick=${onToggle}>
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-            ${product.product_name}
-          </div>
-          ${product.brands && html`
-            <div style="font-size:11px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-              ${product.brands}
-            </div>`}
+          <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${product.product_name}</div>
+          ${product.brands && html`<div style="font-size:11px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${product.brands}</div>`}
         </div>
-        <!-- Compact macro dots when collapsed -->
         ${!expanded && html`
           <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-right:6px">
             ${[[(n['proteins_100g']||0),'var(--p)'],[(n['carbohydrates_100g']||0),'var(--c)'],[(n['fat_100g']||0),'var(--f)']].map(([v,col]) => html`
@@ -672,12 +499,8 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
         </div>
         <div style="flex-shrink:0;color:var(--muted);font-size:14px;margin-left:4px;transition:transform .2s;transform:rotate(${expanded?'180':'0'}deg)">▾</div>
       </div>
-
-      <!-- Expanded detail -->
       ${expanded && html`
         <div class="product-row-body">
-
-          <!-- Serveergrootte knop -->
           ${servingLabel && html`
             <button onClick=${() => setQty(servingGrams)}
               style="display:inline-flex;align-items:center;gap:5px;background:#85b0981a;border:1px solid #85b09840;border-radius:8px;color:var(--p);font-size:11px;padding:5px 10px;cursor:pointer;margin-bottom:12px;transition:background .15s"
@@ -685,38 +508,23 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
               onMouseOut=${e => e.currentTarget.style.background = '#85b0981a'}>
               ↗ ${servingLabel}
             </button>`}
-
-          <!-- Qty input + kcal -->
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">
-            <input type="number" value=${qty}
-              onInput=${e => setQty(Math.max(1, Number(e.target.value) || 1))}
-              min="1" class="mono field"
-              style="width:84px;padding:9px 10px;text-align:center;font-size:18px;font-weight:700;flex-shrink:0"/>
+            <input type="number" value=${qty} onInput=${e => setQty(Math.max(1, Number(e.target.value) || 1))} min="1" class="mono field" style="width:84px;padding:9px 10px;text-align:center;font-size:18px;font-weight:700;flex-shrink:0"/>
             <span style="font-size:12px;color:var(--muted);flex-shrink:0">g / ml</span>
             <div style="margin-left:auto;text-align:right;flex-shrink:0">
               <div class="mono" style="font-size:22px;font-weight:700;line-height:1">${cal}</div>
               <div style="color:var(--muted);font-size:9px;margin-top:2px">kcal</div>
             </div>
           </div>
-
-          <!-- Snelknoppen -->
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
             ${servingGrams
-              ? MULTIPLIERS.map(m => {
-                  const v = Math.round(servingGrams * m);
-                  return html`<button onClick=${() => setQty(v)} style=${pillStyle(qty === v)}>×${m}</button>`;
-                })
-              : QUICK_SIZES.map(s => html`<button onClick=${() => setQty(s)} style=${pillStyle(qty === s)}>${s}g</button>`)
-            }
+              ? MULTIPLIERS.map(m => { const v = Math.round(servingGrams * m); return html`<button onClick=${() => setQty(v)} style=${pillStyle(qty === v)}>×${m}</button>`; })
+              : QUICK_SIZES.map(s => html`<button onClick=${() => setQty(s)} style=${pillStyle(qty === s)}>${s}g</button>`)}
           </div>
-
-          <!-- Macro tags -->
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px">
             ${[['E',(n['proteins_100g']||0)*f,'var(--p)'],['K',(n['carbohydrates_100g']||0)*f,'var(--c)'],['V',(n['fat_100g']||0)*f,'var(--f)']].map(([l,v,col]) => html`
               <span class="tag" style="color:${col};background:${col}1a">${l} ${Math.round(v)}g</span>`)}
           </div>
-
-          <!-- Voeg toe -->
           <button onClick=${add}
             style="width:100%;background:${done ? 'var(--p)' : 'var(--s1)'};color:${done ? 'var(--bg)' : 'var(--text)'};border:1px solid ${done ? 'var(--p)' : 'var(--border)'};border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.01em">
             ${done ? '✓ Toegevoegd' : '+ Voeg toe'}
@@ -728,71 +536,31 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
 // ── SearchModal ───────────────────────────────────────────────────────────────
 function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate }) {
   const [expandedIdx, setExpandedIdx] = useState(results.length === 1 ? 0 : null);
-
   const toggle = (idx) => setExpandedIdx(prev => prev === idx ? null : idx);
-
-  // Close on backdrop click
-  const handleBackdrop = (e) => {
-    if (e.target === e.currentTarget) onClose();
-  };
-
+  const handleBackdrop = (e) => { if (e.target === e.currentTarget) onClose(); };
   return html`
     <div class="modal-backdrop" onClick=${handleBackdrop}>
       <div class="modal-sheet slide-up">
-
-        <!-- Drag handle -->
         <div class="drag-handle"/>
-
-        <!-- Header -->
         <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px 10px">
           <div>
-            <div style="font-weight:700;font-size:14px">
-              Resultaten
-              <span style="color:var(--muted);font-weight:400"> voor </span>
-              <span style="color:var(--c)">"${query}"</span>
-            </div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px">
-              ${results.length} product${results.length !== 1 ? 'en' : ''} gevonden · Open Food Facts
-            </div>
+            <div style="font-weight:700;font-size:14px">Resultaten <span style="color:var(--muted);font-weight:400"> voor </span><span style="color:var(--c)">"${query}"</span></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${results.length} product${results.length !== 1 ? 'en' : ''} gevonden · Open Food Facts</div>
           </div>
-          <button onClick=${onClose}
-            style="background:var(--s2);border:1px solid var(--border);color:var(--muted);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s"
-            onMouseOver=${e=>{e.currentTarget.style.color='var(--text)';e.currentTarget.style.borderColor='var(--text)'}}
-            onMouseOut=${e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.borderColor='var(--border)'}}>×</button>
+          <button onClick=${onClose} style="background:var(--s2);border:1px solid var(--border);color:var(--muted);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s">×</button>
         </div>
-
-        <!-- AI fallback button -->
         <div style="padding:0 16px 12px">
           <button onClick=${onAIEstimate}
-            style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;background:#b89e7212;border:1px solid #b89e7230;border-radius:10px;color:var(--f);padding:9px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s"
-            onMouseOver=${e=>{e.currentTarget.style.background='#b89e7220';e.currentTarget.style.borderColor='#b89e7250'}}
-            onMouseOut=${e=>{e.currentTarget.style.background='#b89e7212';e.currentTarget.style.borderColor='#b89e7230'}}>
-            <span style="font-size:13px">✦</span>
-            AI schatting voor "${query}"
+            style="width:100%;display:flex;align-items:center;justify-content:center;gap:7px;background:#b89e7212;border:1px solid #b89e7230;border-radius:10px;color:var(--f);padding:9px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">
+            <span style="font-size:13px">✦</span> AI schatting voor "${query}"
           </button>
         </div>
-
-        <!-- Divider -->
         <div style="border-top:1px solid var(--border)"/>
-
-        <!-- Scrollable product list -->
         <div style="overflow-y:auto;padding:12px 16px 24px;flex:1">
-          ${results.length === 0 && !offError && html`
-            <div style="text-align:center;color:var(--muted);padding:32px 0;font-size:13px">
-              Geen producten gevonden
-            </div>`}
-          ${offError && html`
-            <div style="color:var(--danger);font-size:12px;margin-bottom:12px;padding:9px 11px;background:#b8727215;border:1px solid #b8727230;border-radius:8px;line-height:1.5">
-              ${offError}
-            </div>`}
+          ${results.length === 0 && !offError && html`<div style="text-align:center;color:var(--muted);padding:32px 0;font-size:13px">Geen producten gevonden</div>`}
+          ${offError && html`<div style="color:var(--danger);font-size:12px;margin-bottom:12px;padding:9px 11px;background:#b8727215;border:1px solid #b8727230;border-radius:8px;line-height:1.5">${offError}</div>`}
           ${results.map(({ product, qty }, idx) => html`
-            <${ProductRow}
-              key=${product.product_name + idx}
-              product=${product}
-              initialQty=${qty}
-              expanded=${expandedIdx === idx}
-              onToggle=${() => toggle(idx)}
-              onAdd=${onAdd}/>`)}
+            <${ProductRow} key=${product.product_name + idx} product=${product} initialQty=${qty} expanded=${expandedIdx === idx} onToggle=${() => toggle(idx)} onAdd=${onAdd}/>`)}
         </div>
       </div>
     </div>`;
@@ -831,27 +599,107 @@ function BarcodeScanner({ onDetected, onClose }) {
     <div class="scanner-overlay">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:16px;z-index:2">
         <div style="color:white;font-size:15px;font-weight:600">Scan barcode</div>
-        <button onClick=${()=>{stopStream();onClose();}}
-          style="background:rgba(255,255,255,.1);border:none;color:white;width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
+        <button onClick=${()=>{stopStream();onClose();}} style="background:rgba(255,255,255,.1);border:none;color:white;width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
       </div>
       <div style="position:relative;flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden">
         <video ref=${videoRef} style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:${found?0:1};transition:opacity .2s"/>
         ${!err && !found && html`<div class="scanner-frame"><div class="scanner-frame-tr"/><div class="scanner-frame-bl"/><div class="scanner-line"/></div>`}
-        ${found && html`
-          <div class="fade-up" style="position:relative;z-index:3;text-align:center">
-            <div style="font-size:40px;margin-bottom:12px">✓</div>
-            <div style="color:var(--p);font-size:15px;font-weight:700">Barcode gevonden</div>
-            <div class="mono" style="color:var(--muted);font-size:12px;margin-top:6px">${found}</div>
-          </div>`}
+        ${found && html`<div class="fade-up" style="position:relative;z-index:3;text-align:center"><div style="font-size:40px;margin-bottom:12px">✓</div><div style="color:var(--p);font-size:15px;font-weight:700">Barcode gevonden</div><div class="mono" style="color:var(--muted);font-size:12px;margin-top:6px">${found}</div></div>`}
         ${err && html`<div style="position:relative;color:#ff6b6b;font-size:13px;text-align:center;padding:20px;background:rgba(0,0,0,.7);border-radius:10px">${err}</div>`}
       </div>
-      <div style="padding:20px;text-align:center;color:#666;font-size:12px">
-        ${found ? 'Product wordt opgezocht…' : 'Richt de camera op een barcode van een product'}
+      <div style="padding:20px;text-align:center;color:#666;font-size:12px">${found ? 'Product wordt opgezocht…' : 'Richt de camera op een barcode van een product'}</div>
+    </div>`;
+}
+
+// ── AddCustomExerciseModal ────────────────────────────────────────────────────
+function AddCustomExerciseModal({ onClose, onSave }) {
+  const [name, setName] = useState('');
+  const [imageData, setImageData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const fileRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const resized = await resizeImage(reader.result);
+      setImageData(resized);
+      setLoading(false);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleSave = () => {
+    if (!name.trim()) return;
+    onSave({
+      id: Date.now() + Math.random(),
+      name: name.trim(),
+      // Sla afbeelding op als data-URL in images array, net zoals de online DB
+      images: imageData ? [imageData] : [],
+      isCustom: true
+    });
+    onClose();
+  };
+
+  return html`
+    <div class="modal-backdrop" onClick=${e => e.target === e.currentTarget && onClose()}>
+      <div class="modal-sheet slide-up" style="max-height:90vh">
+        <div class="drag-handle"/>
+        <div style="padding:12px 16px 10px;display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:700;font-size:16px">Eigen oefening toevoegen</div>
+          <button onClick=${onClose} style="background:var(--s2);border:1px solid var(--border);color:var(--muted);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
+        </div>
+        <div style="overflow-y:auto;flex:1;padding:0 16px 24px">
+
+          <div style="margin-bottom:16px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Naam van de oefening</div>
+            <input value=${name} onInput=${e => setName(e.target.value)}
+              onKeyDown=${e => e.key === 'Enter' && handleSave()}
+              class="field" placeholder="bijv. Pike Pushup, L-sit, Planche Lean…"
+              style="font-size:14px;font-weight:600"/>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Foto (optioneel)</div>
+            <input type="file" accept="image/*" style="display:none" ref=${fileRef} onChange=${handleFile}/>
+
+            ${imageData ? html`
+              <div style="position:relative">
+                <img src=${imageData} style="width:100%;max-height:220px;object-fit:cover;border-radius:12px;border:1px solid var(--border);display:block"/>
+                <button onClick=${() => setImageData(null)}
+                  style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.75);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center">×</button>
+                <div style="position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,.6);border-radius:6px;padding:3px 8px;font-size:10px;color:#aaa">
+                  Verkleind voor opslag
+                </div>
+              </div>
+            ` : html`
+              <button onClick=${() => fileRef.current.click()} disabled=${loading}
+                style="width:100%;height:110px;background:var(--s2);border:2px dashed var(--border);border-radius:12px;color:${loading?'var(--muted)':'#666'};cursor:pointer;font-size:13px;transition:all .15s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px"
+                onMouseOver=${e => { if(!loading){ e.currentTarget.style.borderColor='var(--text)'; e.currentTarget.style.color='var(--text)'; }}}
+                onMouseOut=${e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='#666'; }}>
+                ${loading ? html`<div class="spinner"/>` : html`<span style="font-size:24px">📷</span>`}
+                <span>${loading ? 'Verwerken…' : 'Foto kiezen of maken'}</span>
+              </button>`}
+
+            <div style="font-size:10px;color:var(--dim);margin-top:6px;line-height:1.5">
+              Foto wordt automatisch verkleind en lokaal opgeslagen.<br/>Werkt ook met een camerafoto van je scherm.
+            </div>
+          </div>
+
+          <button onClick=${handleSave} disabled=${!name.trim() || loading}
+            class="btn" style="background:var(--p)">
+            💾 Oefening opslaan
+          </button>
+        </div>
       </div>
     </div>`;
 }
 
-function WorkoutBuilder({ onClose, onSave }) {
+// ── WorkoutBuilder ────────────────────────────────────────────────────────────
+function WorkoutBuilder({ onClose, onSave, customExercises = [] }) {
   const [naam, setNaam] = useState('');
   const [oefeningen, setOefeningen] = useState([]);
   const [zoekterm, setZoekterm] = useState('');
@@ -859,52 +707,51 @@ function WorkoutBuilder({ onClose, onSave }) {
   const [zoeken, setZoeken] = useState(false);
 
   const handleZoek = async () => {
-  if (!zoekterm.trim()) return;
-  setZoeken(true);
-  setZoekresultaten([]);
-  try {
-    const results = await searchExercises(zoekterm);
-    setZoekresultaten(results);
-  } catch (e) {
-    // DB kon niet geladen worden, handmatig toevoegen blijft beschikbaar
-  } finally {
-    setZoeken(false);
-  }
-};
+    if (!zoekterm.trim()) return;
+    setZoeken(true);
+    setZoekresultaten([]);
+    try {
+      const results = await searchExercises(zoekterm, customExercises);
+      setZoekresultaten(results);
+    } catch {}
+    finally { setZoeken(false); }
+  };
 
   const voegToe = (exercise) => {
-  setZoekresultaten([]);
-  setZoekterm('');
-  const image = exercise.images?.[0] ? IMG_BASE + exercise.images[0] : null;
-  setOefeningen(prev => [...prev, {
-    id: Date.now() + Math.random(),
-    naam: exercise.name,
-    image,
-    sets: 3,
-    reps: 10
-  }]);
-};
-
-const voegHandmatigToe = () => {
-  if (!zoekterm.trim()) return;
-  setOefeningen(prev => [...prev, {
-    id: Date.now() + Math.random(),
-    naam: zoekterm.trim(),
-    image: null,
-    sets: 3,
-    reps: 10
-  }]);
-  setZoekterm('');
-  setZoekresultaten([]);
-};
-
-  const updateOefening = (id, field, value) => {
-    setOefeningen(prev => prev.map(e => e.id === id ? {...e, [field]: value} : e));
+    setZoekresultaten([]);
+    setZoekterm('');
+    const rawImage = exercise.images?.[0];
+    // Eigen oefeningen: rawImage is al een data-URL (begint met "data:")
+    // Online DB: rawImage is een bestandsnaam die we samenvoegen met IMG_BASE
+    const image = rawImage
+      ? (exercise.isCustom || rawImage.startsWith('data:') ? rawImage : IMG_BASE + rawImage)
+      : null;
+    setOefeningen(prev => [...prev, {
+      id: Date.now() + Math.random(),
+      naam: exercise.name,
+      image,
+      isCustom: exercise.isCustom || false,
+      sets: 3,
+      reps: 10
+    }]);
   };
 
-  const verwijderOefening = (id) => {
-    setOefeningen(prev => prev.filter(e => e.id !== id));
+  const voegHandmatigToe = () => {
+    if (!zoekterm.trim()) return;
+    setOefeningen(prev => [...prev, {
+      id: Date.now() + Math.random(),
+      naam: zoekterm.trim(),
+      image: null,
+      isCustom: false,
+      sets: 3,
+      reps: 10
+    }]);
+    setZoekterm('');
+    setZoekresultaten([]);
   };
+
+  const updateOefening = (id, field, value) => setOefeningen(prev => prev.map(e => e.id === id ? {...e, [field]: value} : e));
+  const verwijderOefening = (id) => setOefeningen(prev => prev.filter(e => e.id !== id));
 
   const handleOpslaan = () => {
     if (!naam.trim() || oefeningen.length === 0) return;
@@ -933,35 +780,45 @@ const voegHandmatigToe = () => {
           <div class="card" style="margin-bottom:12px">
             <div class="section-label">Oefening toevoegen</div>
             <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.5">
-              Typ in het Engels voor automatisch een plaatje. Of typ een naam en klik "Handmatig".
+              Zoek in de database of je eigen oefeningen. Typ in het Engels voor online resultaten.
             </div>
             <div style="display:flex;gap:8px;margin-bottom:8px">
               <input value=${zoekterm}
                 onInput=${e => setZoekterm(e.target.value)}
                 onKeyDown=${e => e.key === 'Enter' && handleZoek()}
-                placeholder="bijv. pike pushup, dip, plank..."
+                placeholder="bijv. pike push, L-sit, planche…"
                 class="field" style="flex:1"/>
               <button onClick=${handleZoek} disabled=${zoeken || !zoekterm.trim()}
                 style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 14px;font-weight:700;font-size:13px;cursor:pointer;opacity:${zoeken||!zoekterm.trim()?'.3':'1'}">
                 ${zoeken ? '...' : 'Zoek'}
               </button>
             </div>
+
             ${zoekresultaten.length > 0 && html`
               <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:8px">
                 ${zoekresultaten.map((r, i) => html`
-                 <div onClick=${() => voegToe(r)}
-                    style="padding:10px 12px;cursor:pointer;font-size:13px;border-bottom:${i < zoekresultaten.length-1?'1px solid var(--border)':'none'};transition:background .15s"
+                  <div onClick=${() => voegToe(r)}
+                    style="padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:${i < zoekresultaten.length-1?'1px solid var(--border)':'none'};transition:background .15s"
                     onMouseOver=${e => e.currentTarget.style.background='var(--s2)'}
                     onMouseOut=${e => e.currentTarget.style.background='transparent'}>
-                    ${r.name}
-                 </div>`)}
+                    ${r.images?.[0] ? html`
+                      <img src=${r.isCustom || r.images[0].startsWith('data:') ? r.images[0] : IMG_BASE + r.images[0]}
+                        style="width:36px;height:36px;object-fit:cover;border-radius:6px;flex-shrink:0;border:1px solid var(--border)"/>`
+                    : html`<div style="width:36px;height:36px;border-radius:6px;background:var(--s1);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">💪</div>`}
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:13px;font-weight:600">${r.name}</div>
+                      ${r.isCustom && html`<div style="font-size:10px;color:var(--p);margin-top:1px">Eigen oefening</div>`}
+                    </div>
+                    <div style="font-size:11px;color:var(--muted)">+</div>
+                  </div>`)}
               </div>`}
+
             ${zoekresultaten.length === 0 && zoekterm.trim() && !zoeken && html`
               <button onClick=${voegHandmatigToe}
                 style="width:100%;background:var(--s2);border:1px solid var(--border);color:var(--muted);border-radius:10px;padding:9px;font-size:12px;cursor:pointer;transition:all .15s"
                 onMouseOver=${e=>{e.currentTarget.style.borderColor='var(--text)';e.currentTarget.style.color='var(--text)'}}
                 onMouseOut=${e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--muted)'}}>
-                + "${zoekterm}" handmatig toevoegen (zonder plaatje)
+                + "${zoekterm}" handmatig toevoegen (zonder foto)
               </button>`}
           </div>
 
@@ -974,20 +831,17 @@ const voegHandmatigToe = () => {
                     ? html`<img src=${oe.image} style="width:70px;height:70px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid var(--border)"/>`
                     : html`<div style="width:70px;height:70px;border-radius:8px;background:var(--s1);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">💪</div>`}
                   <div style="flex:1;min-width:0">
-                    <div style="font-size:13px;font-weight:600;margin-bottom:8px">${oe.naam}</div>
+                    <div style="font-size:13px;font-weight:600;margin-bottom:2px">${oe.naam}</div>
+                    ${oe.isCustom && html`<div style="font-size:10px;color:var(--p);margin-bottom:6px">Eigen oefening</div>`}
                     <div style="display:flex;gap:6px;align-items:center">
                       <div style="flex:1">
                         <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Sets</div>
-                        <input type="number" value=${oe.sets}
-                          onInput=${e => updateOefening(oe.id, 'sets', Number(e.target.value))}
-                          class="field mono" style="padding:6px 8px;text-align:center;font-size:14px;font-weight:700"/>
+                        <input type="number" value=${oe.sets} onInput=${e => updateOefening(oe.id, 'sets', Number(e.target.value))} class="field mono" style="padding:6px 8px;text-align:center;font-size:14px;font-weight:700"/>
                       </div>
                       <div style="color:var(--muted);margin-top:12px">×</div>
                       <div style="flex:1">
                         <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Reps</div>
-                        <input type="number" value=${oe.reps}
-                          onInput=${e => updateOefening(oe.id, 'reps', Number(e.target.value))}
-                          class="field mono" style="padding:6px 8px;text-align:center;font-size:14px;font-weight:700"/>
+                        <input type="number" value=${oe.reps} onInput=${e => updateOefening(oe.id, 'reps', Number(e.target.value))} class="field mono" style="padding:6px 8px;text-align:center;font-size:14px;font-weight:700"/>
                       </div>
                       <button onClick=${() => verwijderOefening(oe.id)}
                         style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:18px;margin-top:12px;line-height:1;flex-shrink:0;transition:color .15s;padding:4px"
@@ -998,8 +852,7 @@ const voegHandmatigToe = () => {
                 </div>`)}
             </div>`}
 
-          <button onClick=${handleOpslaan} disabled=${!naam.trim() || oefeningen.length === 0}
-            class="btn" style="background:var(--p)">
+          <button onClick=${handleOpslaan} disabled=${!naam.trim() || oefeningen.length === 0} class="btn" style="background:var(--p)">
             💾 Workout opslaan
           </button>
         </div>
@@ -1007,19 +860,16 @@ const voegHandmatigToe = () => {
     </div>`;
 }
 
+// ── WorkoutCard ───────────────────────────────────────────────────────────────
 function WorkoutCard({ workout, onDelete }) {
   const [open, setOpen] = useState(false);
-
   return html`
     <div style="background:var(--s1);border:1px solid ${open?'var(--p)':'var(--border)'};border-radius:12px;margin-bottom:10px;overflow:hidden;transition:border-color .2s">
-      <div onClick=${() => setOpen(p => !p)}
-        style="display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer">
+      <div onClick=${() => setOpen(p => !p)} style="display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer">
         <div style="width:36px;height:36px;border-radius:10px;background:#85b0981a;border:1px solid #85b09830;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🏋️</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:600">${workout.naam}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">
-            ${workout.oefeningen.length} oefeningen · ${workout.aangemaakt}
-          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${workout.oefeningen.length} oefeningen · ${workout.aangemaakt}</div>
         </div>
         <div style="color:var(--muted);font-size:14px;transition:transform .2s;transform:rotate(${open?'180':'0'}deg);flex-shrink:0">▾</div>
         <button onClick=${e => { e.stopPropagation(); onDelete(workout.id); }}
@@ -1037,13 +887,14 @@ function WorkoutCard({ workout, onDelete }) {
               <div style="flex:1">
                 <div style="font-size:13px;font-weight:600">${oe.naam}</div>
                 <div style="font-size:11px;color:var(--muted);margin-top:3px;font-family:'JetBrains Mono',monospace">${oe.sets} sets × ${oe.reps} reps</div>
+                ${oe.isCustom && html`<div style="font-size:10px;color:var(--p);margin-top:2px">Eigen oefening</div>`}
               </div>
             </div>`)}
         </div>`}
     </div>`;
 }
-  
-// ── Meal Builder Modal ────────────────────────────────────────────────────────
+
+// ── MealBuilderModal ──────────────────────────────────────────────────────────
 function MealBuilderModal({ onClose, onSave, onRequest }) {
   const [name, setName] = useState('');
   const [items, setItems] = useState([]);
@@ -1061,18 +912,8 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
 
   const addItem = (product, qty) => {
     const n = product.nutriments, f = qty / 100;
-    setItems(p => [...p, {
-      naam: product.product_name,
-      hoeveelheid: `${qty}g`,
-      calorieën: getKcal100g(n)*f,
-      eiwitten: (n['proteins_100g']||0)*f,
-      koolhydraten: (n['carbohydrates_100g']||0)*f,
-      vetten: (n['fat_100g']||0)*f,
-      id: Date.now() + Math.random()
-    }]);
-    setShowSearchModal(false);
-    setOffResults([]);
-    setOffError('');
+    setItems(p => [...p, { naam: product.product_name, hoeveelheid: `${qty}g`, calorieën: getKcal100g(n)*f, eiwitten: (n['proteins_100g']||0)*f, koolhydraten: (n['carbohydrates_100g']||0)*f, vetten: (n['fat_100g']||0)*f, id: Date.now() + Math.random() }]);
+    setShowSearchModal(false); setOffResults([]); setOffError('');
   };
 
   const handleOFFSearch = async () => {
@@ -1082,65 +923,45 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
     const controller = new AbortController();
     abortOFF.current = controller;
     const { signal } = controller;
-    setOffLoading(true);
-    setOffError('');
-    setOffResults([]);
-    setShowSearchModal(false);
-
+    setOffLoading(true); setOffError(''); setOffResults([]); setShowSearchModal(false);
     const termen = q.split(',').map(s => s.trim()).filter(Boolean);
     const parsed = termen.map(extractQty);
     const cleans = parsed.map(p => p.clean);
     setModalLabel(cleans.join(', '));
     setOffPhaseMsg('Zoeken in database…');
     try {
-      const gevonden = [];
-      const mislukt = [];
-      let serverError = false;
+      const gevonden = [], mislukt = [];
       for (let i = 0; i < cleans.length; i++) {
         if (signal.aborted) break;
         const { qty } = parsed[i];
         try {
           const prods = await searchALicious(cleans[i], signal, 100, onRequest);
-          if (prods.length) {
-            gevonden.push(...prods.map(product => ({ product, qty })));
-          } else {
-            mislukt.push(termen[i]);
-          }
-        } catch (e) {
-          if (e.name === 'AbortError') throw e;
-          mislukt.push(termen[i]);
-        }
+          if (prods.length) gevonden.push(...prods.map(product => ({ product, qty })));
+          else mislukt.push(termen[i]);
+        } catch (e) { if (e.name === 'AbortError') throw e; mislukt.push(termen[i]); }
       }
-      const errorMsg = mislukt.length ? `Niet gevonden: ${mislukt.map(t => `"${t}"`).join(', ')}` : '';
-      setOffResults(gevonden);
-      setOffError(errorMsg);
+      const errorMsg = mislukt.length ? `Niet gevonden: ${mislukt.map(t=>`"${t}"`).join(', ')}` : '';
+      setOffResults(gevonden); setOffError(errorMsg);
       if (gevonden.length > 0 || errorMsg) setShowSearchModal(true);
     } catch (e) {
       if (e.name === 'AbortError') return;
-      setOffError('Fout: ' + (e.message || 'Probeer opnieuw.'));
-      setShowSearchModal(true);
-    } finally {
-      setOffLoading(false);
-      setOffPhaseMsg('');
-    }
+      setOffError('Fout: ' + (e.message || 'Probeer opnieuw.')); setShowSearchModal(true);
+    } finally { setOffLoading(false); setOffPhaseMsg(''); }
   };
 
   const handleAISearch = async () => {
-  const q = aiQuery.trim();
-  if (!q || aiLoading) return;
-  setAiLoading(true);
-  setAiError('');
-  try {
-    const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
-    const parsed = parseGeminiJson(data);
-    setItems(p => [...p, ...parsed.items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
-    setAiQuery('');
-  } catch (e) {
-    setAiError('Fout: ' + (e.message || 'Probeer opnieuw.'));
-  } finally {
-    setAiLoading(false);
-  }
-};
+    const q = aiQuery.trim();
+    if (!q || aiLoading) return;
+    setAiLoading(true); setAiError('');
+    try {
+      const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
+      const parsed = parseGeminiJson(data);
+      setItems(p => [...p, ...parsed.items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
+      setAiQuery('');
+    } catch (e) { setAiError('Fout: ' + (e.message || 'Probeer opnieuw.')); }
+    finally { setAiLoading(false); }
+  };
+
   const handleSave = () => {
     if (!name.trim() || items.length === 0) return;
     onSave({ naam: name.trim(), items: items.map(({ id, ...rest }) => rest) });
@@ -1148,489 +969,285 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
   };
 
   const removeItem = (id) => setItems(p => p.filter(i => i.id !== id));
-
-  const totals = items.reduce((a, i) => ({
-    calorieën: a.calorieën + i.calorieën,
-    eiwitten: a.eiwitten + i.eiwitten,
-    koolhydraten: a.koolhydraten + i.koolhydraten,
-    vetten: a.vetten + i.vetten,
-  }), { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
+  const totals = items.reduce((a, i) => ({ calorieën: a.calorieën + i.calorieën, eiwitten: a.eiwitten + i.eiwitten, koolhydraten: a.koolhydraten + i.koolhydraten, vetten: a.vetten + i.vetten }), { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
 
   return html`
     <div class="modal-backdrop" onClick=${e => e.target === e.currentTarget && onClose()}>
-      <div class="modal-sheet slide-up" style="max-height:90vh;">
+      <div class="modal-sheet slide-up" style="max-height:90vh">
         <div class="drag-handle"/>
         <div style="padding:12px 16px 10px;display:flex;justify-content:space-between;align-items:center">
-          <div style="font-weight:700;font-size:16px;">Maaltijd samenstellen</div>
+          <div style="font-weight:700;font-size:16px">Maaltijd samenstellen</div>
           <button onClick=${onClose} style="background:var(--s2);border:1px solid var(--border);color:var(--muted);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
         </div>
-        <div style="overflow-y:auto;flex:1;padding:0 16px 24px;">
-          <input value=${name} onInput=${e => setName(e.target.value)} placeholder="Naam van de maaltijd" class="field" style="margin-bottom:16px;font-weight:600;font-size:14px;"/>
-          <div class="card" style="margin-bottom:12px;">
+        <div style="overflow-y:auto;flex:1;padding:0 16px 24px">
+          <input value=${name} onInput=${e => setName(e.target.value)} placeholder="Naam van de maaltijd" class="field" style="margin-bottom:16px;font-weight:600;font-size:14px"/>
+          <div class="card" style="margin-bottom:12px">
             <div class="section-label">● Database zoeken</div>
-            <div style="display:flex;gap:8px;">
+            <div style="display:flex;gap:8px">
               <input value=${offQuery} onInput=${e => setOffQuery(e.target.value)} onKeyDown=${e => e.key === 'Enter' && handleOFFSearch()} placeholder="bijv. 30g volkoren brood, 2 eieren" class="field" style="flex:1"/>
-              <button onClick=${handleOFFSearch} disabled=${offLoading || !offQuery.trim()} style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;">${offLoading ? '...' : 'Zoek'}</button>
+              <button onClick=${handleOFFSearch} disabled=${offLoading || !offQuery.trim()} style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer">${offLoading ? '...' : 'Zoek'}</button>
             </div>
-            ${offLoading && html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;"><div class="spinner" style="border-top-color:var(--c)"/><span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span></div>`}
+            ${offLoading && html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px"><div class="spinner" style="border-top-color:var(--c)"/><span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span></div>`}
           </div>
-          <div class="card" style="margin-bottom:12px;">
+          <div class="card" style="margin-bottom:12px">
             <div class="section-label">✦ Beschrijven met AI</div>
-            <div style="display:flex;gap:8px;">
+            <div style="display:flex;gap:8px">
               <input value=${aiQuery} onInput=${e => setAiQuery(e.target.value)} onKeyDown=${e => e.key === 'Enter' && handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="flex:1"/>
-              <button onClick=${handleAISearch} disabled=${aiLoading || !aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;">${aiLoading ? '...' : 'Schat'}</button>
+              <button onClick=${handleAISearch} disabled=${aiLoading || !aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer">${aiLoading ? '...' : 'Schat'}</button>
             </div>
-            ${aiLoading && html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;"><div class="spinner" style="border-top-color:var(--f)"/><span style="font-size:12px;color:var(--muted)">AI schat voedingswaarden…</span></div>`}
+            ${aiLoading && html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px"><div class="spinner" style="border-top-color:var(--f)"/><span style="font-size:12px;color:var(--muted)">AI schat voedingswaarden…</span></div>`}
             ${aiError && html`<div style="color:var(--danger);font-size:12px;margin-top:8px">${aiError}</div>`}
           </div>
           ${items.length > 0 && html`
-            <div style="margin-bottom:8px;font-size:11px;color:var(--dim);">Toegevoegd aan maaltijd — ${items.length} item${items.length!==1?'s':''} · ${Math.round(totals.calorieën)} kcal totaal</div>
+            <div style="margin-bottom:8px;font-size:11px;color:var(--dim)">${items.length} item${items.length!==1?'s':''} · ${Math.round(totals.calorieën)} kcal totaal</div>
             ${items.map(item => html`<${LogCard} key=${item.id} item=${item} onRemove=${() => removeItem(item.id)}/>`)}
           `}
-          <button onClick=${handleSave} disabled=${!name.trim() || items.length === 0} class="btn" style="margin-top:8px;background:var(--p);">💾 Maaltijd opslaan</button>
+          <button onClick=${handleSave} disabled=${!name.trim() || items.length === 0} class="btn" style="margin-top:8px;background:var(--p)">💾 Maaltijd opslaan</button>
         </div>
         ${showSearchModal && html`<${SearchModal} results=${offResults} query=${modalLabel || offQuery} offError=${offError} onClose=${() => { setShowSearchModal(false); setOffResults([]); setOffError(''); }} onAdd=${addItem} onAIEstimate=${() => { setAiQuery(modalLabel || offQuery); setShowSearchModal(false); setOffResults([]); setOffError(''); }}/>`}
       </div>
     </div>`;
 }
 
-// ── Add Product Modal ────────────────────────────────────────────────────────
+// ── AddProductModal ───────────────────────────────────────────────────────────
 function AddProductModal({ onClose, onSave }) {
   const [naam, setNaam] = useState('');
   const [kcal, setKcal] = useState('');
   const [eiwit, setEiwit] = useState('');
   const [koolh, setKoolh] = useState('');
   const [vet, setVet] = useState('');
-
   const handleSave = () => {
     if (!naam.trim() || isNaN(parseFloat(kcal)) || isNaN(parseFloat(eiwit)) || isNaN(parseFloat(koolh)) || isNaN(parseFloat(vet))) return;
-    onSave({
-      naam: naam.trim(),
-      calorieën: parseFloat(kcal),
-      eiwitten: parseFloat(eiwit),
-      koolhydraten: parseFloat(koolh),
-      vetten: parseFloat(vet)
-    });
+    onSave({ naam: naam.trim(), calorieën: parseFloat(kcal), eiwitten: parseFloat(eiwit), koolhydraten: parseFloat(koolh), vetten: parseFloat(vet) });
     onClose();
   };
-
   return html`
     <div class="modal-backdrop" onClick=${e => e.target === e.currentTarget && onClose()}>
-      <div class="modal-sheet slide-up" style="max-height:90vh;">
+      <div class="modal-sheet slide-up" style="max-height:90vh">
         <div class="drag-handle"/>
         <div style="padding:12px 16px 10px;display:flex;justify-content:space-between;align-items:center">
-          <div style="font-weight:700;font-size:16px;">Eigen product toevoegen</div>
-          <button onClick=${onClose} style="background:var(--s2);border:1px solid var(--border);color:var(--muted);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;">×</button>
+          <div style="font-weight:700;font-size:16px">Eigen product toevoegen</div>
+          <button onClick=${onClose} style="background:var(--s2);border:1px solid var(--border);color:var(--muted);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer">×</button>
         </div>
-        <div style="overflow-y:auto;flex:1;padding:0 16px 24px;">
-          <div style="margin-bottom:12px;">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Productnaam</div>
-            <input value=${naam} onInput=${e => setNaam(e.target.value)} class="field" placeholder="bijv. Franse halfvolle kwark" />
-          </div>
-          <div style="margin-bottom:12px;">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Calorieën (kcal per 100g)</div>
-            <input type="number" value=${kcal} onInput=${e => setKcal(e.target.value)} class="field mono" placeholder="74" />
-          </div>
-          <div style="margin-bottom:12px;">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Eiwitten (g per 100g)</div>
-            <input type="number" value=${eiwit} onInput=${e => setEiwit(e.target.value)} class="field mono" placeholder="7.5" />
-          </div>
-          <div style="margin-bottom:12px;">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Koolhydraten (g per 100g)</div>
-            <input type="number" value=${koolh} onInput=${e => setKoolh(e.target.value)} class="field mono" placeholder="3.9" />
-          </div>
-          <div style="margin-bottom:20px;">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Vetten (g per 100g)</div>
-            <input type="number" value=${vet} onInput=${e => setVet(e.target.value)} class="field mono" placeholder="3.1" />
-          </div>
-          <button onClick=${handleSave} disabled=${!naam.trim() || !kcal || !eiwit || !koolh || !vet}
-            class="btn" style="background:var(--p);">💾 Product opslaan</button>
+        <div style="overflow-y:auto;flex:1;padding:0 16px 24px">
+          ${[['Productnaam','text',naam,setNaam,'bijv. Franse halfvolle kwark'],['Calorieën (kcal per 100g)','number',kcal,setKcal,'74'],['Eiwitten (g per 100g)','number',eiwit,setEiwit,'7.5'],['Koolhydraten (g per 100g)','number',koolh,setKoolh,'3.9'],['Vetten (g per 100g)','number',vet,setVet,'3.1']].map(([label, type, val, setter, ph]) => html`
+            <div style="margin-bottom:12px">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:5px">${label}</div>
+              <input type=${type} value=${val} onInput=${e => setter(e.target.value)} class=${type==='number'?'field mono':'field'} placeholder=${ph}/>
+            </div>`)}
+          <button onClick=${handleSave} disabled=${!naam.trim() || !kcal || !eiwit || !koolh || !vet} class="btn" style="background:var(--p)">💾 Product opslaan</button>
         </div>
       </div>
     </div>`;
 }
-  
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
-  const [log,    setLog]    = useState(loadLog);
-  const [goals,  setGoals]  = useState(() => jget('ct_goals', DEFAULT_GOALS));
-  const [key,    setKeyState] = useState(getKey);
-  const [tab,    setTab]    = useState('add');
+  const [log, setLog] = useState(loadLog);
+  const [goals, setGoals] = useState(() => jget('ct_goals', DEFAULT_GOALS));
+  const [key, setKeyState] = useState(getKey);
+  const [tab, setTab] = useState('add');
 
-  const [offQuery,    setOffQuery]    = useState('');
-  const [offResults,  setOffResults]  = useState([]);
-  const [offLoading,  setOffLoading]  = useState(false);
+  const [offQuery, setOffQuery] = useState('');
+  const [offResults, setOffResults] = useState([]);
+  const [offLoading, setOffLoading] = useState(false);
   const [offPhaseMsg, setOffPhaseMsg] = useState('');
-  const [offError,    setOffError]    = useState('');
-  const [showModal,   setShowModal]   = useState(false);
-  // Label shown in modal header (the "clean" search terms, without quantities)
-  const [modalLabel,  setModalLabel]  = useState('');
+  const [offError, setOffError] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [modalLabel, setModalLabel] = useState('');
 
-  const [aiQuery,   setAiQuery]   = useState('');
+  const [aiQuery, setAiQuery] = useState('');
   const [aiBericht, setAiBericht] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiError,   setAiError]   = useState('');
+  const [aiError, setAiError] = useState('');
 
   const [scanning, setScanning] = useState(false);
-  const [gDraft,   setGDraft]   = useState(goals);
-  const [kSaved,   setKSaved]   = useState(false);
-  const [gSaved,   setGSaved]   = useState(false);
+  const [gDraft, setGDraft] = useState(goals);
+  const [kSaved, setKSaved] = useState(false);
+  const [gSaved, setGSaved] = useState(false);
   const [usageTick, setUsageTick] = useState(0);
   const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 100));
-  const [presets, setPresets] = useState(() => loadPresets());
+  const [presets, setPresets] = useState(loadPresets);
   const [customProducts, setCustomProducts] = useState(() => jget('ct_custom_products', []));
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showMealBuilder, setShowMealBuilder] = useState(false);
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
+  const [customExercises, setCustomExercises] = useState(loadCustomExercises);
+  const [showAddExercise, setShowAddExercise] = useState(false);
   const [libTab, setLibTab] = useState('maaltijden');
   const [uploadedImage, setUploadedImage] = useState(null);
   const fileInputRef = useRef(null);
-
   const offInputRef = useRef();
-  const aiInputRef  = useRef();
-  const abortOFF    = useRef(null);
+  const aiInputRef = useRef();
+  const abortOFF = useRef(null);
 
   useEffect(() => saveLog(log), [log]);
   useEffect(() => { jset('ct_maxResults', maxResults); }, [maxResults]);
   useEffect(() => { jset('ct_custom_products', customProducts); }, [customProducts]);
 
   const handleFileUpload = (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    setUploadedImage({ mimeType: file.type, data: reader.result.split(',')[1] });
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setUploadedImage({ mimeType: file.type, data: reader.result.split(',')[1] });
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
-  reader.readAsDataURL(file);
-  e.target.value = ''; // reset input zodat dezelfde foto opnieuw gekozen kan worden
-};
 
-  const totals = log.reduce((a, i) => ({
-    calorieën:    a.calorieën    + i.calorieën,
-    eiwitten:     a.eiwitten     + i.eiwitten,
-    koolhydraten: a.koolhydraten + i.koolhydraten,
-    vetten:       a.vetten       + i.vetten,
-  }), { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
-
+  const totals = log.reduce((a, i) => ({ calorieën: a.calorieën + i.calorieën, eiwitten: a.eiwitten + i.eiwitten, koolhydraten: a.koolhydraten + i.koolhydraten, vetten: a.vetten + i.vetten }), { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
   const addItems = items => setLog(p => [...p, ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
 
   const addOFF = (product, qty) => {
     const n = product.nutriments, f = qty / 100;
-    addItems([{ naam: product.product_name, hoeveelheid: `${qty}g`,
-      calorieën: getKcal100g(n)*f, eiwitten: (n['proteins_100g']||0)*f,
-      koolhydraten: (n['carbohydrates_100g']||0)*f, vetten: (n['fat_100g']||0)*f }]);
+    addItems([{ naam: product.product_name, hoeveelheid: `${qty}g`, calorieën: getKcal100g(n)*f, eiwitten: (n['proteins_100g']||0)*f, koolhydraten: (n['carbohydrates_100g']||0)*f, vetten: (n['fat_100g']||0)*f }]);
   };
 
-  const closeModal = () => {
-    setShowModal(false);
-    setOffResults([]);
-    setOffError('');
-    setTimeout(() => offInputRef.current?.focus(), 50);
-  };
+  const closeModal = () => { setShowModal(false); setOffResults([]); setOffError(''); setTimeout(() => offInputRef.current?.focus(), 50); };
 
-  // Trigger AI estimate from modal — close modal, fill AI query, run search
   const handleAIFromModal = async () => {
-  const q = modalLabel || offQuery;
-  closeModal();
-  setAiQuery(q);
-  if (!q.trim() || aiLoading) return;
-  handleAISearch(); // roept de gewone AI-schatting aan
-};
-  
-const handleSavePreset = () => {
-  if (log.length === 0) return;
-  const name = prompt('Geef een naam voor deze maaltijd:');
-  if (!name || !name.trim()) return;
-  const newPreset = {
-    naam: name.trim(),
-    items: log.map(item => ({
-      naam: item.naam,
-      hoeveelheid: item.hoeveelheid,
-      calorieën: item.calorieën,
-      eiwitten: item.eiwitten,
-      koolhydraten: item.koolhydraten,
-      vetten: item.vetten
-    }))
+    const q = modalLabel || offQuery;
+    closeModal();
+    setAiQuery(q);
+    if (!q.trim() || aiLoading) return;
+    handleAISearch();
   };
-  const updated = [...presets, newPreset];
-  setPresets(updated);
-  savePresets(updated);
-};
 
-const handleLoadPreset = (preset) => {
-  addItems(preset.items.map(item => ({ ...item })));
-};
+  // ── Custom exercises ───────────────────────────────────────────────────────
+  const handleSaveCustomExercise = (exercise) => {
+    const updated = [...customExercises, exercise];
+    setCustomExercises(updated);
+    saveCustomExercises(updated);
+  };
 
-const handleDeletePreset = (index) => {
-  if (!confirm('Weet je zeker dat je deze maaltijd wilt verwijderen?')) return;
-  const updated = presets.filter((_, i) => i !== index);
-  setPresets(updated);
-  savePresets(updated);
-};
+  const handleDeleteCustomExercise = (id) => {
+    const updated = customExercises.filter(e => e.id !== id);
+    setCustomExercises(updated);
+    saveCustomExercises(updated);
+  };
 
-const handleSaveMeal = (preset) => {
-  const updated = [...presets, preset];
-  setPresets(updated);
-  savePresets(updated);
-};
+  // ── Presets & workouts ─────────────────────────────────────────────────────
+  const handleLoadPreset = (preset) => addItems(preset.items.map(item => ({ ...item })));
+  const handleDeletePreset = (index) => {
+    if (!confirm('Weet je zeker dat je deze maaltijd wilt verwijderen?')) return;
+    const updated = presets.filter((_, i) => i !== index);
+    setPresets(updated); savePresets(updated);
+  };
+  const handleSaveMeal = (preset) => { const updated = [...presets, preset]; setPresets(updated); savePresets(updated); };
+  const handleSaveWorkout = (workout) => { const updated = [...workouts, workout]; setWorkouts(updated); saveWorkouts(updated); };
+  const handleDeleteWorkout = (id) => { const updated = workouts.filter(w => w.id !== id); setWorkouts(updated); saveWorkouts(updated); };
+  const addCustomProduct = (product) => setCustomProducts(prev => [...prev, { ...product, id: Date.now() + Math.random() }]);
+  const deleteCustomProduct = (id) => setCustomProducts(prev => prev.filter(p => p.id !== id));
 
-const handleSaveWorkout = (workout) => {
-  const updated = [...workouts, workout];
-  setWorkouts(updated);
-  saveWorkouts(updated);
-};
-
-const handleDeleteWorkout = (id) => {
-  const updated = workouts.filter(w => w.id !== id);
-  setWorkouts(updated);
-  saveWorkouts(updated);
-};
-
-const addCustomProduct = (product) => {
-  setCustomProducts(prev => [...prev, { ...product, id: Date.now() + Math.random() }]);
-};
-
-const deleteCustomProduct = (id) => {
-  setCustomProducts(prev => prev.filter(p => p.id !== id));
-};
-  
-  // ── OFF zoeken ────────────────────────────────────────────────────────────
+  // ── OFF zoeken ─────────────────────────────────────────────────────────────
   const handleOFFSearch = async () => {
     const q = offQuery.trim();
-        // Barcode-detectie: direct de barcode-API gebruiken als de zoekterm een getal van 8-14 cijfers is
     if (/^[0-9]{8,14}$/.test(q)) {
       if (abortOFF.current) abortOFF.current.abort();
       const controller = new AbortController();
       abortOFF.current = controller;
       const { signal } = controller;
-      setOffLoading(true);
-      setOffPhaseMsg('Barcode opzoeken…');
-      setOffError('');
-      setOffResults([]);
-      setShowModal(false);
-      setModalLabel(q);
+      setOffLoading(true); setOffPhaseMsg('Barcode opzoeken…'); setOffError(''); setOffResults([]); setShowModal(false); setModalLabel(q);
       try {
         const product = await offBarcode(q, signal);
-        if (product) {
-          setOffResults([{ product, qty: null }]);
-          setShowModal(true);
-        } else {
-          setOffError(`Barcode ${q} niet gevonden in de database.`);
-          setShowModal(true);
-        }
-      } catch (e) {
-        if (e.name !== 'AbortError') {
-          setOffError('Fout bij opzoeken van barcode.');
-          setShowModal(true);
-        }
-      } finally {
-        setOffLoading(false);
-        setOffPhaseMsg('');
-      }
-      return; // stop de normale tekstuele zoekopdracht
+        if (product) { setOffResults([{ product, qty: null }]); setShowModal(true); }
+        else { setOffError(`Barcode ${q} niet gevonden in de database.`); setShowModal(true); }
+      } catch (e) { if (e.name !== 'AbortError') { setOffError('Fout bij opzoeken van barcode.'); setShowModal(true); } }
+      finally { setOffLoading(false); setOffPhaseMsg(''); }
+      return;
     }
     if (!q || offLoading) return;
     if (abortOFF.current) abortOFF.current.abort();
     const controller = new AbortController();
     abortOFF.current = controller;
     const { signal } = controller;
-
-    setOffLoading(true);
-    setOffError('');
-    setOffResults([]);
-    setShowModal(false);
-
+    setOffLoading(true); setOffError(''); setOffResults([]); setShowModal(false);
     const termen = q.split(',').map(s => s.trim()).filter(Boolean);
     const parsed = termen.map(extractQty);
     const cleans = parsed.map(p => p.clean);
     setModalLabel(cleans.join(', '));
-
-    // Totale tijdslimiet van 15 seconden voor de hele zoekopdracht
     const TOTAL_TIMEOUT_MS = 15000;
     let timedOut = false;
-    const timeoutId = setTimeout(() => {
-      timedOut = true;
-      controller.abort(); // breek alle lopende requests af
-    }, TOTAL_TIMEOUT_MS);
-
-        try {
-      const gevonden = [];
-      const mislukt = [];
-      const progressMessages = [];
+    const timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, TOTAL_TIMEOUT_MS);
+    try {
+      const gevonden = [], mislukt = [], progressMessages = [];
       let serverError = false;
-
       for (let i = 0; i < cleans.length; i++) {
         if (signal.aborted) break;
-
         const { qty } = parsed[i];
         const term = termen[i];
-        
         progressMessages.push(`Bezig met "${term}"...`);
         setOffPhaseMsg(progressMessages.join(' · '));
-
         try {
-          // 1. Eerst eigen producten matchen (altijd, onafhankelijk van API)
-          const customMatches = customProducts.filter(p =>
-            p.naam.toLowerCase().includes(cleans[i].toLowerCase())
-          );
-          if (customMatches.length) {
-            gevonden.push(...customMatches.map(p => ({
-              product: {
-                product_name: p.naam,
-                brands: 'Eigen product',
-                nutriments: {
-                  'energy-kcal_100g': p.calorieën,
-                  proteins_100g: p.eiwitten,
-                  carbohydrates_100g: p.koolhydraten,
-                  fat_100g: p.vetten
-                },
-                serving_size: null
-              },
-              qty
-            })));
-          }
-
-          // 2. Dan de API-resultaten ophalen en toevoegen
+          const customMatches = customProducts.filter(p => p.naam.toLowerCase().includes(cleans[i].toLowerCase()));
+          if (customMatches.length) gevonden.push(...customMatches.map(p => ({ product: { product_name: p.naam, brands: 'Eigen product', nutriments: { 'energy-kcal_100g': p.calorieën, proteins_100g: p.eiwitten, carbohydrates_100g: p.koolhydraten, fat_100g: p.vetten }, serving_size: null }, qty })));
           const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1));
-          if (prods.length > 0) {
-            gevonden.push(...prods.map(product => ({ product, qty })));
-            progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} product(en) gevonden`;
-          } else {
-            mislukt.push(term);
-            progressMessages[progressMessages.length - 1] = `"${term}": niets gevonden`;
-          }
-        } catch (e) {
-          if (e.name === 'AbortError') break;
-          serverError = true;
-          mislukt.push(term);
-          progressMessages[progressMessages.length - 1] = `"${term}": fout bij ophalen`;
-        }
-
+          if (prods.length > 0) { gevonden.push(...prods.map(product => ({ product, qty }))); progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} gevonden`; }
+          else { mislukt.push(term); progressMessages[progressMessages.length - 1] = `"${term}": niets gevonden`; }
+        } catch (e) { if (e.name === 'AbortError') break; serverError = true; mislukt.push(term); progressMessages[progressMessages.length - 1] = `"${term}": fout`; }
         setOffPhaseMsg(progressMessages.join(' · '));
       }
-
       clearTimeout(timeoutId);
-
-      let errorMsg = mislukt.length
-        ? serverError
-          ? `Server tijdelijk niet beschikbaar voor: ${mislukt.map(t=>`"${t}"`).join(', ')} — probeer opnieuw.`
-          : `Niet gevonden: ${mislukt.map(t=>`"${t}"`).join(', ')} — controleer de spelling.`
-        : '';
-      if (timedOut) {
-        errorMsg = 'Zoekopdracht gestopt na 15 seconden. ' + (errorMsg || '');
-      }
-
-      setOffResults(gevonden);
-      setOffError(errorMsg);
-      if (gevonden.length > 0 || errorMsg) {
-        setShowModal(true);
-      }
+      let errorMsg = mislukt.length ? (serverError ? `Server tijdelijk niet beschikbaar voor: ${mislukt.map(t=>`"${t}"`).join(', ')}` : `Niet gevonden: ${mislukt.map(t=>`"${t}"`).join(', ')}`) : '';
+      if (timedOut) errorMsg = 'Zoekopdracht gestopt na 15 seconden. ' + (errorMsg || '');
+      setOffResults(gevonden); setOffError(errorMsg);
+      if (gevonden.length > 0 || errorMsg) setShowModal(true);
     } catch (e) {
       clearTimeout(timeoutId);
-      if (e.name === 'AbortError') {
-        if (timedOut) {
-          setOffError('Zoekopdracht gestopt na 15 seconden. Probeer een specifiekere zoekterm.');
-          setShowModal(true);
-        }
-      } else {
-        setOffError('Fout: ' + (e.message || 'Probeer opnieuw.'));
-        setShowModal(true);
-      }
-    } finally {
-     clearTimeout(timeoutId);
-      setOffLoading(false);
-      setOffPhaseMsg('');
-    }
-  }   // ← deze accolade sluit handleOFFSearch af
+      if (e.name === 'AbortError') { if (timedOut) { setOffError('Zoekopdracht gestopt na 15 seconden.'); setShowModal(true); } }
+      else { setOffError('Fout: ' + (e.message || 'Probeer opnieuw.')); setShowModal(true); }
+    } finally { clearTimeout(timeoutId); setOffLoading(false); setOffPhaseMsg(''); }
+  };
 
-  // ── AI beschrijven ────────────────────────────────────────────────────────
+  // ── AI beschrijven ─────────────────────────────────────────────────────────
   const handleAISearch = async () => {
-  const q = aiQuery.trim();
-  if (!q || aiLoading) return;
-  setAiLoading(true);
-  setAiError('');
-  setAiBericht('');
-  try {
-    let response;
-    // Gebruik de oude, directe string-aanroep zolang er geen foto is
-    if (uploadedImage) {
-      const parts = [
-        { text: q },
-        { inlineData: { mimeType: uploadedImage.mimeType, data: uploadedImage.data } }
-      ];
-      setUploadedImage(null);
-      response = await callGemini(NUTRITION_SYSTEM, parts, 2048);
-    } else {
-      response = await callGemini(NUTRITION_SYSTEM, q, 2048);
-    }
-    const parsed = parseGeminiJson(response);
-    addItems(parsed.items || []);
-    setAiBericht(parsed.bericht || '');
-    setAiQuery('');
-  } catch (e) {
-    setAiError('Fout: ' + (e.message || 'Probeer opnieuw.'));
-  } finally {
-    setAiLoading(false);
-    setTimeout(() => aiInputRef.current?.focus(), 50);
-  }
-};
+    const q = aiQuery.trim();
+    if (!q || aiLoading) return;
+    setAiLoading(true); setAiError(''); setAiBericht('');
+    try {
+      let response;
+      if (uploadedImage) {
+        const parts = [{ text: q }, { inlineData: { mimeType: uploadedImage.mimeType, data: uploadedImage.data } }];
+        setUploadedImage(null);
+        response = await callGemini(NUTRITION_SYSTEM, parts, 2048);
+      } else {
+        response = await callGemini(NUTRITION_SYSTEM, q, 2048);
+      }
+      const parsed = parseGeminiJson(response);
+      addItems(parsed.items || []);
+      setAiBericht(parsed.bericht || '');
+      setAiQuery('');
+    } catch (e) { setAiError('Fout: ' + (e.message || 'Probeer opnieuw.')); }
+    finally { setAiLoading(false); setTimeout(() => aiInputRef.current?.focus(), 50); }
+  };
 
-  // ── Barcode: direct endpoint → tekstzoek fallback ─────────────────────────
+  // ── Barcode ────────────────────────────────────────────────────────────────
   const handleBarcode = async (code) => {
     setScanning(false);
     if (abortOFF.current) abortOFF.current.abort();
     const controller = new AbortController();
     abortOFF.current = controller;
     const { signal } = controller;
-
-    setOffLoading(true);
-    setOffPhaseMsg('Barcode opzoeken…');
-    setOffError('');
-    setOffResults([]);
-    setShowModal(false);
-    setOffQuery(code);
-    setModalLabel(code);
-
+    setOffLoading(true); setOffPhaseMsg('Barcode opzoeken…'); setOffError(''); setOffResults([]); setShowModal(false); setOffQuery(code); setModalLabel(code);
     try {
       const product = await offBarcode(code, signal);
-
-      if (product) {
-        setOffResults([{ product, qty: null }]);
-        setShowModal(true);
-      } else {
-        setOffError(`Barcode ${code} niet gevonden in de database.`);
-        setShowModal(true);
-      }
-    } catch (e) {
-      if (e.name !== 'AbortError') {
-        setOffError('Fout bij opzoeken van barcode.');
-        setShowModal(true);
-      }
-    } finally {
-      setOffLoading(false);
-      setOffPhaseMsg('');
-    }
+      if (product) { setOffResults([{ product, qty: null }]); setShowModal(true); }
+      else { setOffError(`Barcode ${code} niet gevonden in de database.`); setShowModal(true); }
+    } catch (e) { if (e.name !== 'AbortError') { setOffError('Fout bij opzoeken van barcode.'); setShowModal(true); } }
+    finally { setOffLoading(false); setOffPhaseMsg(''); }
   };
 
   const calPct = Math.min(totals.calorieën / goals.calorieën, 1);
   const calOver = totals.calorieën > goals.calorieën;
 
   return html`<div>
-        ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
-        ${showWorkoutBuilder && html`<${WorkoutBuilder} onClose=${() => setShowWorkoutBuilder(false)} onSave=${handleSaveWorkout}/>`}
-        ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)}/>`}
-        ${showAddProduct && html`<${AddProductModal} onClose=${() => setShowAddProduct(false)} onSave=${addCustomProduct} />`}
+    ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
+    ${showWorkoutBuilder && html`<${WorkoutBuilder} customExercises=${customExercises} onClose=${() => setShowWorkoutBuilder(false)} onSave=${handleSaveWorkout}/>`}
+    ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)}/>`}
+    ${showAddProduct && html`<${AddProductModal} onClose=${() => setShowAddProduct(false)} onSave=${addCustomProduct}/>`}
+    ${showAddExercise && html`<${AddCustomExerciseModal} onClose=${() => setShowAddExercise(false)} onSave=${handleSaveCustomExercise}/>`}
 
-    <!-- Search Modal -->
-    ${showModal && html`
-      <${SearchModal}
-        results=${offResults}
-        query=${modalLabel || offQuery}
-        offError=${offError}
-        onClose=${closeModal}
-        onAdd=${addOFF}
-        onAIEstimate=${handleAIFromModal}/>`}
+    ${showModal && html`<${SearchModal} results=${offResults} query=${modalLabel || offQuery} offError=${offError} onClose=${closeModal} onAdd=${addOFF} onAIEstimate=${handleAIFromModal}/>`}
 
     <!-- Header -->
     <div style="background:var(--s1);border-bottom:1px solid var(--border);padding:16px;position:sticky;top:0;z-index:20">
@@ -1638,9 +1255,7 @@ const deleteCustomProduct = (id) => {
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
           <div>
             <div style="font-size:16px;font-weight:700;letter-spacing:-.3px">CalorieTracker</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:1px">
-              ${new Date().toLocaleDateString('nl-NL',{weekday:'long',day:'numeric',month:'long'})}
-            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">${new Date().toLocaleDateString('nl-NL',{weekday:'long',day:'numeric',month:'long'})}</div>
           </div>
           <button onClick=${()=>{setLog([]);setAiBericht('');setOffResults([]);setOffError('');setAiError('');setShowModal(false);}}
             style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 11px;font-size:11px;cursor:pointer;transition:all .15s"
@@ -1651,17 +1266,15 @@ const deleteCustomProduct = (id) => {
         </div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:6px">
           <span>Calorieën</span>
-          <span class="mono" style="color:${calOver?'var(--danger)':'var(--text)'};font-weight:600">
-            ${Math.round(totals.calorieën)} / ${goals.calorieën} kcal
-          </span>
+          <span class="mono" style="color:${calOver?'var(--danger)':'var(--text)'};font-weight:600">${Math.round(totals.calorieën)} / ${goals.calorieën} kcal</span>
         </div>
         <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
           <div style="width:${calPct*100}%;height:100%;background:${calOver?'var(--danger)':'var(--text)'};border-radius:6px;transition:width .5s ease"/>
         </div>
         <div style="display:flex;justify-content:space-around;margin-top:16px">
-          <${Ring} value=${totals.eiwitten}     goal=${goals.eiwitten}     label="Eiwitten"     color="var(--p)"/>
+          <${Ring} value=${totals.eiwitten} goal=${goals.eiwitten} label="Eiwitten" color="var(--p)"/>
           <${Ring} value=${totals.koolhydraten} goal=${goals.koolhydraten} label="Koolhydraten" color="var(--c)"/>
-          <${Ring} value=${totals.vetten}       goal=${goals.vetten}       label="Vetten"       color="var(--f)"/>
+          <${Ring} value=${totals.vetten} goal=${goals.vetten} label="Vetten" color="var(--f)"/>
         </div>
       </div>
     </div>
@@ -1671,8 +1284,7 @@ const deleteCustomProduct = (id) => {
       <div style="max-width:480px;margin:0 auto;display:flex">
         <button class=${'tab'+(tab==='add'?' on':'')} onClick=${()=>setTab('add')}>Toevoegen</button>
         <button class=${'tab'+(tab==='workout'?' on':'')} onClick=${()=>setTab('workout')}>Workouts</button>
-        <button class=${'tab'+(tab==='settings'?' on':'')} onClick=${()=>setTab('settings')}
-          style="display:flex;align-items:center;justify-content:center;gap:5px">
+        <button class=${'tab'+(tab==='settings'?' on':'')} onClick=${()=>setTab('settings')} style="display:flex;align-items:center;justify-content:center;gap:5px">
           Instellingen
           <span style="width:7px;height:7px;border-radius:50%;background:${key?'var(--p)':'var(--danger)'};flex-shrink:0"/>
         </button>
@@ -1681,115 +1293,74 @@ const deleteCustomProduct = (id) => {
 
     <!-- Content -->
     <div style="max-width:480px;margin:0 auto;padding:16px 14px 80px">
-      ${tab==='add' && html`<div>
 
+      ${tab==='add' && html`<div>
         <!-- OFF zoekbalk -->
         <div class="card" style="border-top:2px solid #7fa4b835">
           <div class="section-label" style="color:var(--c)">● Database zoeken</div>
-          <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
-            Zoeken in Open Food Facts. Meerdere producten scheiden met een komma.
-          </div>
+          <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">Zoeken in Open Food Facts. Meerdere producten scheiden met een komma.</div>
           <div style="display:flex;gap:8px">
             <button onClick=${()=>setScanning(true)} title="Scan barcode"
               style="flex-shrink:0;width:42px;height:42px;background:var(--s2);border:1px solid var(--border);border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s;color:var(--muted)"
               onMouseOver=${e=>{e.currentTarget.style.borderColor='var(--text)';e.currentTarget.style.color='var(--text)'}}
               onMouseOut=${e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--muted)'}}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/>
-                <path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
-                <line x1="7" y1="12" x2="7" y2="12.01"/><line x1="17" y1="12" x2="17" y2="12.01"/>
-                <line x1="12" y1="7" x2="12" y2="17"/>
+                <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+                <line x1="7" y1="12" x2="7" y2="12.01"/><line x1="17" y1="12" x2="17" y2="12.01"/><line x1="12" y1="7" x2="12" y2="17"/>
               </svg>
             </button>
-            <input ref=${offInputRef} value=${offQuery}
-              onInput=${e=>setOffQuery(e.target.value)}
-              onKeyDown=${e=>e.key==='Enter'&&handleOFFSearch()}
-              placeholder="bijv. 30g volkoren brood, 2 eieren"
-              class="field" style="flex:1"/>
+            <input ref=${offInputRef} value=${offQuery} onInput=${e=>setOffQuery(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleOFFSearch()} placeholder="bijv. 30g volkoren brood, 2 eieren" class="field" style="flex:1"/>
             <button onClick=${handleOFFSearch} disabled=${offLoading||!offQuery.trim()}
               style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${offLoading||!offQuery.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
               ${offLoading ? '...' : 'Zoek'}
             </button>
           </div>
-          ${offLoading && html`
-            <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0">
-              <div class="spinner" style="border-top-color:var(--c)"/>
-              <span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span>
-            </div>`}
-        </div>   <!-- ← sluit de OFF‑zoekbalk-card af -->
+          ${offLoading && html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0"><div class="spinner" style="border-top-color:var(--c)"/><span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span></div>`}
+        </div>
 
         <hr class="divider"/>
 
         <!-- AI beschrijving -->
         <div class="card" style="border-top:2px solid #b89e7235">
           <div class="section-label" style="color:var(--f)">✦ Beschrijven met AI</div>
-          <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">
-            Voor maaltijden en generieke producten. AI schat de voedingswaarden.
+          <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.6">Voor maaltijden en generieke producten. AI schat de voedingswaarden.</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="file" accept="image/*" capture="environment" style="display:none" ref=${fileInputRef} onChange=${handleFileUpload}/>
+            <button class="icon-btn" onClick=${() => fileInputRef.current.click()} title="Foto toevoegen" style="flex-shrink:0">📷</button>
+            <input ref=${aiInputRef} value=${aiQuery} onInput=${e=>{ setAiQuery(e.target.value); if(aiBericht||aiError){ setAiBericht(''); setAiError(''); } }} onKeyDown=${e=>e.key==='Enter'&&handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="flex:1"/>
+            <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${aiLoading||!aiQuery.trim()?'.3':'1'};white-space:nowrap">
+              ${aiLoading ? '...' : 'Schat'}
+            </button>
           </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-  <input type="file" accept="image/*" capture="environment" style="display:none" ref=${fileInputRef} onChange=${handleFileUpload} />
-  <button class="icon-btn" onClick=${() => fileInputRef.current.click()} title="Foto toevoegen" style="flex-shrink:0;">📷</button>
-  <input ref=${aiInputRef} value=${aiQuery}
-    onInput=${e=>{ setAiQuery(e.target.value); if(aiBericht||aiError){ setAiBericht(''); setAiError(''); } }}
-    onKeyDown=${e=>e.key==='Enter'&&handleAISearch()}
-    placeholder="bijv. 300g groentesoep, 2 eieren…"
-    class="field" style="flex:1"/>
-  <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()}
-    style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${aiLoading||!aiQuery.trim()?'.3':'1'};white-space:nowrap;">
-    ${aiLoading ? '...' : 'Schat'}
-  </button>
-</div>
-${uploadedImage && html`<div style="margin-top:8px;font-size:11px;color:var(--muted);">📎 Foto geselecteerd</div>`}
-          ${aiLoading && html`
-            <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0">
-              <div class="spinner" style="border-top-color:var(--f)"/>
-              <span style="font-size:12px;color:var(--muted)">AI schat voedingswaarden…</span>
-            </div>`}
+          ${uploadedImage && html`<div style="margin-top:8px;font-size:11px;color:var(--muted)">📎 Foto geselecteerd</div>`}
+          ${aiLoading && html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0"><div class="spinner" style="border-top-color:var(--f)"/><span style="font-size:12px;color:var(--muted)">AI schat voedingswaarden…</span></div>`}
           ${aiError && html`<div style="color:var(--danger);font-size:12px;margin-top:8px">${aiError}</div>`}
-          ${aiBericht && html`
-            <div class="fade-up" style="margin-top:10px;padding:10px;background:var(--s2);border-radius:10px;border:1px solid var(--dim);font-size:12px;color:#888;line-height:1.6">
-              <span style="color:var(--f);margin-right:5px">✦</span>${aiBericht}
-            </div>`}
+          ${aiBericht && html`<div class="fade-up" style="margin-top:10px;padding:10px;background:var(--s2);border-radius:10px;border:1px solid var(--dim);font-size:12px;color:#888;line-height:1.6"><span style="color:var(--f);margin-right:5px">✦</span>${aiBericht}</div>`}
         </div>
 
         <hr class="divider"/>
 
-        <!-- Bibliotheek: Maaltijden & Producten -->
+        <!-- Bibliotheek -->
         <div class="card">
-
-          <!-- Tab-balk -->
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
             <div style="display:flex;gap:6px">
-              <button onClick=${() => setLibTab('maaltijden')}
-                style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='maaltijden'?'var(--p)':'var(--border)'};background:${libTab==='maaltijden'?'var(--p)':'transparent'};color:${libTab==='maaltijden'?'var(--bg)':'var(--muted)'}">
+              <button onClick=${() => setLibTab('maaltijden')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='maaltijden'?'var(--p)':'var(--border)'};background:${libTab==='maaltijden'?'var(--p)':'transparent'};color:${libTab==='maaltijden'?'var(--bg)':'var(--muted)'}">
                 Maaltijden${presets.length > 0 ? ` (${presets.length})` : ''}
               </button>
-              <button onClick=${() => setLibTab('producten')}
-                style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='producten'?'var(--c)':'var(--border)'};background:${libTab==='producten'?'var(--c)':'transparent'};color:${libTab==='producten'?'var(--bg)':'var(--muted)'}">
+              <button onClick=${() => setLibTab('producten')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='producten'?'var(--c)':'var(--border)'};background:${libTab==='producten'?'var(--c)':'transparent'};color:${libTab==='producten'?'var(--bg)':'var(--muted)'}">
                 Producten${customProducts.length > 0 ? ` (${customProducts.length})` : ''}
               </button>
             </div>
             ${libTab === 'maaltijden'
-              ? html`<button onClick=${() => setShowMealBuilder(true)}
-                  style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;transition:opacity .15s"
-                  onMouseOver=${e => e.currentTarget.style.opacity='.8'}
-                  onMouseOut=${e => e.currentTarget.style.opacity='1'}>+ Nieuw</button>`
-              : html`<button onClick=${() => setShowAddProduct(true)}
-                  style="background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;transition:opacity .15s"
-                  onMouseOver=${e => e.currentTarget.style.opacity='.8'}
-                  onMouseOut=${e => e.currentTarget.style.opacity='1'}>+ Nieuw</button>`
-            }
+              ? html`<button onClick=${() => setShowMealBuilder(true)} style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer">+ Nieuw</button>`
+              : html`<button onClick=${() => setShowAddProduct(true)} style="background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer">+ Nieuw</button>`}
           </div>
 
-          <!-- Maaltijden lijst -->
           ${libTab === 'maaltijden' && html`<div>
-            ${presets.length === 0 && html`
-              <div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">
-                Nog geen maaltijden opgeslagen.<br/>Maak er een via "+ Nieuw".
-              </div>`}
+            ${presets.length === 0 && html`<div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">Nog geen maaltijden opgeslagen.<br/>Maak er een via "+ Nieuw".</div>`}
             ${presets.map((preset, idx) => {
               const totalKcal = preset.items.reduce((a, i) => a + i.calorieën, 0);
-              const totalP    = preset.items.reduce((a, i) => a + i.eiwitten, 0);
+              const totalP = preset.items.reduce((a, i) => a + i.eiwitten, 0);
               return html`
                 <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < presets.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
                   <div style="width:36px;height:36px;border-radius:10px;background:#85b0981a;border:1px solid #85b09830;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px">🍽</div>
@@ -1797,26 +1368,18 @@ ${uploadedImage && html`<div style="margin-top:8px;font-size:11px;color:var(--mu
                     <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${preset.naam}</div>
                     <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${Math.round(totalKcal)} kcal · E ${Math.round(totalP)}g · ${preset.items.length} items</div>
                   </div>
-                  <button onClick=${() => handleLoadPreset(preset)}
-                    style="flex-shrink:0;background:#85b0981a;color:var(--p);border:1px solid #85b09840;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
+                  <button onClick=${() => handleLoadPreset(preset)} style="flex-shrink:0;background:#85b0981a;color:var(--p);border:1px solid #85b09840;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
                     onMouseOver=${e => { e.currentTarget.style.background='var(--p)'; e.currentTarget.style.color='var(--bg)'; }}
-                    onMouseOut=${e => { e.currentTarget.style.background='#85b0981a'; e.currentTarget.style.color='var(--p)'; }}>
-                    + Log
-                  </button>
-                  <button onClick=${() => handleDeletePreset(idx)}
-                    style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+                    onMouseOut=${e => { e.currentTarget.style.background='#85b0981a'; e.currentTarget.style.color='var(--p)'; }}>+ Log</button>
+                  <button onClick=${() => handleDeletePreset(idx)} style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
                     onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
                     onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
-                </div>`
+                </div>`;
             })}
           </div>`}
 
-          <!-- Producten lijst -->
           ${libTab === 'producten' && html`<div>
-            ${customProducts.length === 0 && html`
-              <div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">
-                Nog geen eigen producten.<br/>Voeg er een toe via "+ Nieuw".
-              </div>`}
+            ${customProducts.length === 0 && html`<div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">Nog geen eigen producten.<br/>Voeg er een toe via "+ Nieuw".</div>`}
             ${customProducts.map((p, idx) => html`
               <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < customProducts.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
                 <div style="width:36px;height:36px;border-radius:10px;background:#7fa4b81a;border:1px solid #7fa4b830;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px">📦</div>
@@ -1825,91 +1388,104 @@ ${uploadedImage && html`<div style="margin-top:8px;font-size:11px;color:var(--mu
                   <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${Math.round(p.calorieën)} kcal · E ${Math.round(p.eiwitten)}g · K ${Math.round(p.koolhydraten)}g · V ${Math.round(p.vetten)}g</div>
                 </div>
                 <button onClick=${() => addItems([{ naam: p.naam, hoeveelheid: '100g', calorieën: p.calorieën, eiwitten: p.eiwitten, koolhydraten: p.koolhydraten, vetten: p.vetten }])}
-                  style="flex-shrink:0;background:#7fa4b81a;color:var(--c);border:1px solid #7fa4b840;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap"
+                  style="flex-shrink:0;background:#7fa4b81a;color:var(--c);border:1px solid #7fa4b840;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
                   onMouseOver=${e => { e.currentTarget.style.background='var(--c)'; e.currentTarget.style.color='var(--bg)'; }}
-                  onMouseOut=${e => { e.currentTarget.style.background='#7fa4b81a'; e.currentTarget.style.color='var(--c)'; }}>
-                  + Log
-                </button>
-                <button onClick=${() => deleteCustomProduct(p.id)}
-                  style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+                  onMouseOut=${e => { e.currentTarget.style.background='#7fa4b81a'; e.currentTarget.style.color='var(--c)'; }}>+ Log</button>
+                <button onClick=${() => deleteCustomProduct(p.id)} style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
                   onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
                   onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
               </div>`)}
           </div>`}
-
         </div>
-      <hr class="divider"/>
+
+        <hr class="divider"/>
 
         <!-- Log -->
         ${log.length > 0 && html`
           <div>
             <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
-              <div style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">
-                Vandaag · ${log.length} item${log.length!==1?'s':''}
-              </div>
+              <div style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">Vandaag · ${log.length} item${log.length!==1?'s':''}</div>
               <div class="mono" style="font-size:11px;color:var(--muted)">${Math.round(totals.calorieën)} kcal</div>
             </div>
-            ${[...log].reverse().map(item => html`
-              <${LogCard} key=${item.id} item=${item} onRemove=${()=>setLog(p=>p.filter(i=>i.id!==item.id))}/>`)}
+            ${[...log].reverse().map(item => html`<${LogCard} key=${item.id} item=${item} onRemove=${()=>setLog(p=>p.filter(i=>i.id!==item.id))}/>`)}
           </div>`}
-        ${log.length===0 && html`
-          <div style="text-align:center;color:var(--border);padding:44px 20px;font-size:13px">
-            <div style="font-size:30px;margin-bottom:10px">🍽</div>
-            Nog niets gelogd vandaag
-          </div>`}
+        ${log.length===0 && html`<div style="text-align:center;color:var(--border);padding:44px 20px;font-size:13px"><div style="font-size:30px;margin-bottom:10px">🍽</div>Nog niets gelogd vandaag</div>`}
       </div>`}
 
       ${tab==='workout' && html`<div>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-    <div style="font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">
-      Mijn workouts
-    </div>
-    <button onClick=${() => setShowWorkoutBuilder(true)}
-      style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s"
-      onMouseOver=${e => e.currentTarget.style.opacity='.8'}
-      onMouseOut=${e => e.currentTarget.style.opacity='1'}>
-      + Nieuwe workout
-    </button>
-  </div>
-  ${workouts.length === 0 && html`
-    <div style="text-align:center;color:var(--border);padding:44px 20px;font-size:13px">
-      <div style="font-size:30px;margin-bottom:10px">🏋️</div>
-      Nog geen workouts opgeslagen
-    </div>`}
-  ${workouts.map(w => html`
-    <${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout}/>`)}
-</div>`}
+        <!-- Mijn workouts -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">Mijn workouts</div>
+          <button onClick=${() => setShowWorkoutBuilder(true)}
+            style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s"
+            onMouseOver=${e => e.currentTarget.style.opacity='.8'}
+            onMouseOut=${e => e.currentTarget.style.opacity='1'}>
+            + Nieuwe workout
+          </button>
+        </div>
+        ${workouts.length === 0 && html`<div style="text-align:center;color:var(--border);padding:32px 20px;font-size:13px"><div style="font-size:30px;margin-bottom:10px">🏋️</div>Nog geen workouts opgeslagen</div>`}
+        ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout}/>`)}
+
+        <!-- Eigen oefeningen bibliotheek -->
+        <div class="card" style="margin-top:8px;border-top:2px solid #85b09835">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div>
+              <div class="section-label" style="color:var(--p);margin-bottom:2px">Eigen oefeningen</div>
+              <div style="font-size:11px;color:var(--dim)">Voeg je eigen oefeningen toe met een foto</div>
+            </div>
+            <button onClick=${() => setShowAddExercise(true)}
+              style="flex-shrink:0;background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;transition:opacity .15s"
+              onMouseOver=${e => e.currentTarget.style.opacity='.8'}
+              onMouseOut=${e => e.currentTarget.style.opacity='1'}>
+              + Nieuw
+            </button>
+          </div>
+
+          ${customExercises.length === 0 && html`
+            <div style="text-align:center;padding:20px 0;color:var(--dim);font-size:12px;line-height:1.7">
+              Nog geen eigen oefeningen.<br/>
+              Voeg ze toe en gebruik ze in je workouts.
+            </div>`}
+
+          ${customExercises.map((ex, i) => html`
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 0;${i < customExercises.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
+              ${ex.images?.[0]
+                ? html`<img src=${ex.images[0]} style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid var(--border)"/>`
+                : html`<div style="width:52px;height:52px;border-radius:8px;background:var(--s2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">💪</div>`}
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ex.name}</div>
+                <div style="font-size:10px;color:var(--p);margin-top:2px">Eigen oefening · ${ex.images?.[0] ? 'met foto' : 'zonder foto'}</div>
+              </div>
+              <button onClick=${() => handleDeleteCustomExercise(ex.id)}
+                style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+                onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
+                onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
+            </div>`)}
+        </div>
+      </div>`}
+
       ${tab==='settings' && html`<div>
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:10px">Gemini API Key</div>
           <div style="display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:9px;margin-bottom:12px;background:${key?'#85b0981a':'#b872721a'};border:1px solid ${key?'#85b09840':'#b8727240'}">
             <span style="width:7px;height:7px;border-radius:50%;background:${key?'var(--p)':'var(--danger)'};flex-shrink:0"/>
-            <span style="font-size:12px;color:${key?'var(--p)':'var(--danger)'}">
-              ${key ? 'API key opgeslagen — AI kan voedingswaarden schatten' : 'Geen API key — AI-schatting werkt niet'}
-            </span>
+            <span style="font-size:12px;color:${key?'var(--p)':'var(--danger)'}">${key ? 'API key opgeslagen — AI kan voedingswaarden schatten' : 'Geen API key — AI-schatting werkt niet'}</span>
           </div>
-          <input type="password" value=${key} onInput=${e=>setKeyState(e.target.value)}
-            placeholder="AIza..." class="field" style="margin-bottom:10px"/>
-          <button class=${'btn'+(kSaved?' success':'')} onClick=${()=>{
-            setKey(key); setKSaved(true); setTimeout(()=>setKSaved(false),2000);
-          }}>${kSaved ? '✓ Opgeslagen' : 'API key opslaan'}</button>
-          <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6">
-            Gratis key via <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>
-          </div>
+          <input type="password" value=${key} onInput=${e=>setKeyState(e.target.value)} placeholder="AIza..." class="field" style="margin-bottom:10px"/>
+          <button class=${'btn'+(kSaved?' success':'')} onClick=${()=>{ setKey(key); setKSaved(true); setTimeout(()=>setKSaved(false),2000); }}>${kSaved ? '✓ Opgeslagen' : 'API key opslaan'}</button>
+          <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6">Gratis key via <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a></div>
         </div>
+
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:12px">Dagelijkse doelen</div>
           ${[['calorieën','Calorieën (kcal)'],['eiwitten','Eiwitten (g)'],['koolhydraten','Koolhydraten (g)'],['vetten','Vetten (g)']].map(([k,lbl])=>html`
             <div style="margin-bottom:12px">
               <div style="font-size:11px;color:var(--muted);margin-bottom:5px">${lbl}</div>
-              <input type="number" value=${gDraft[k]}
-                onInput=${e=>setGDraft(p=>({...p,[k]:Number(e.target.value)}))}
-                class="field mono"/>
+              <input type="number" value=${gDraft[k]} onInput=${e=>setGDraft(p=>({...p,[k]:Number(e.target.value)}))} class="field mono"/>
             </div>`)}
-          <button class=${'btn'+(gSaved?' success':'')} onClick=${()=>{
-            setGoals(gDraft); jset('ct_goals',gDraft); setGSaved(true); setTimeout(()=>setGSaved(false),2000);
-          }}>${gSaved ? '✓ Opgeslagen' : 'Doelen opslaan'}</button>
+          <button class=${'btn'+(gSaved?' success':'')} onClick=${()=>{ setGoals(gDraft); jset('ct_goals',gDraft); setGSaved(true); setTimeout(()=>setGSaved(false),2000); }}>${gSaved ? '✓ Opgeslagen' : 'Doelen opslaan'}</button>
         </div>
+
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:12px">API-gebruik (Gemini)</div>
           ${(() => {
@@ -1918,94 +1494,52 @@ ${uploadedImage && html`<div style="margin-top:8px;font-size:11px;color:var(--mu
             const totalTPM = Object.values(stats.tpm).reduce((a,b)=>a+b,0);
             const totalRPM = Object.values(stats.rpm).reduce((a,b)=>a+b,0);
             const maxRPD = 1500, maxTPM = 1000000, maxRPM = 10;
-
-            const barStyle = (used, max) => {
-              const pct = Math.min(used / max * 100, 100);
-              const over = used >= max;
-              return `width:${pct}%;height:100%;background:${over?'var(--danger)':'var(--c)'};border-radius:6px;transition:width .3s`;
-            };
-
+            const barStyle = (used, max) => { const pct = Math.min(used / max * 100, 100); const over = used >= max; return `width:${pct}%;height:100%;background:${over?'var(--danger)':'var(--c)'};border-radius:6px;transition:width .3s`; };
             return html`
-              <div style="margin-bottom:16px">
-                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
-                  <span>Verzoeken vandaag</span>
-                  <span class="mono">${totalRPD} / ${maxRPD}</span>
-                </div>
-                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
-                  <div style="${barStyle(totalRPD, maxRPD)}"></div>
-                </div>
-              </div>
-              <div style="margin-bottom:16px">
-                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
-                  <span>Tokens deze minuut</span>
-                  <span class="mono">${totalTPM.toLocaleString()} / ${maxTPM.toLocaleString()}</span>
-                </div>
-                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
-                  <div style="${barStyle(totalTPM, maxTPM)}"></div>
-                </div>
-              </div>
-              <div style="margin-bottom:4px">
-                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
-                  <span>Verzoeken deze minuut</span>
-                  <span class="mono">${totalRPM} / ${maxRPM}</span>
-                </div>
-                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
-                  <div style="${barStyle(totalRPM, maxRPM)}"></div>
-                </div>
-              </div>
-              <div style="font-size:10px;color:var(--dim);margin-top:10px;line-height:1.4">
-                Gebaseerd op lokale telling. Limieten kunnen afwijken.<br/>
-                Bij overschrijding schakelt de app over op een ander model.
-              </div>
-            `;
+              ${[['Verzoeken vandaag', totalRPD, maxRPD],['Tokens deze minuut', totalTPM, maxTPM],['Verzoeken deze minuut', totalRPM, maxRPM]].map(([label, used, max]) => html`
+                <div style="margin-bottom:14px">
+                  <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+                    <span>${label}</span><span class="mono">${used.toLocaleString()} / ${max.toLocaleString()}</span>
+                  </div>
+                  <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden"><div style="${barStyle(used, max)}"/></div>
+                </div>`)}
+              <div style="font-size:10px;color:var(--dim);line-height:1.4">Gebaseerd op lokale telling. Limieten kunnen afwijken.</div>`;
           })()}
-          <button class="btn" onClick=${() => { rateLimitTracker.reset(); setUsageTick(t => t+1); }}
-            style="margin-top:12px;background:var(--dim);color:var(--text);border:1px solid var(--border)">
-            Lokale tellers resetten
-          </button>
+          <button class="btn" onClick=${() => { rateLimitTracker.reset(); setUsageTick(t => t+1); }} style="margin-top:12px;background:var(--dim);color:var(--text);border:1px solid var(--border)">Lokale tellers resetten</button>
         </div>
+
         <div class="card">
-  <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:12px">Cloudflare Worker gebruik</div>
-  ${(() => {
-    const cf = getCFUsage();
-    const used = cf.count || 0;
-    const max = 100000;
-    const pct = Math.min(used / max * 100, 100);
-    const over = used >= max;
-    return html`
-      <div style="margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
-          <span>Zoekopdrachten vandaag</span>
-          <span class="mono" style="color:${over?'var(--danger)':'var(--text)'}">${used.toLocaleString()} / ${max.toLocaleString()}</span>
+          <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:12px">Cloudflare Worker gebruik</div>
+          ${(() => {
+            const cf = getCFUsage();
+            const used = cf.count || 0;
+            const max = 100000;
+            const pct = Math.min(used / max * 100, 100);
+            const over = used >= max;
+            return html`
+              <div style="margin-bottom:8px">
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+                  <span>Zoekopdrachten vandaag</span><span class="mono" style="color:${over?'var(--danger)':'var(--text)'}">${used.toLocaleString()} / ${max.toLocaleString()}</span>
+                </div>
+                <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden"><div style="width:${pct}%;height:100%;background:${over?'var(--danger)':'var(--c)'};border-radius:6px"/></div>
+              </div>
+              <div style="font-size:10px;color:var(--dim);line-height:1.4">Gratis limiet via Cloudflare Workers: 100.000 per dag.</div>
+              <button class="btn" onClick=${() => { localStorage.removeItem(CF_USAGE_KEY); setUsageTick(t => t+1); }} style="margin-top:12px;background:var(--dim);color:var(--text);border:1px solid var(--border)">Teller resetten</button>`;
+          })()}
         </div>
-        <div style="background:var(--s2);border-radius:6px;height:4px;overflow:hidden">
-          <div style="width:${pct}%;height:100%;background:${over?'var(--danger)':'var(--c)'};border-radius:6px;transition:width .3s"/>
-        </div>
-      </div>
-      <div style="font-size:10px;color:var(--dim);margin-top:6px;line-height:1.4">
-        Gratis limiet via Cloudflare Workers: 100.000 per dag.<br/>
-        Teller reset automatisch om middernacht.
-      </div>
-      <button class="btn" onClick=${() => {
-        localStorage.removeItem(CF_USAGE_KEY);
-        setUsageTick(t => t+1);
-      }} style="margin-top:12px;background:var(--dim);color:var(--text);border:1px solid var(--border)">
-        Teller resetten
-      </button>
-    `;
-  })()}
-</div>
+
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:12px">Zoekresultaten</div>
-          <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.4">
-            Maximaal aantal producten dat wordt opgehaald uit de database.
-          </div>
-          <input type="number" value=${maxResults}
-            onInput=${e => setMaxResults(Math.max(1, Math.min(200, Number(e.target.value) || 50)))}
-            min="1" max="200" class="field mono"
-            style="text-align:center;font-size:16px;font-weight:600"/>
-          <div style="font-size:10px;color:var(--dim);margin-top:6px">
-            Tussen 1 en 200 (standaard 50)
+          <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.4">Maximaal aantal producten dat wordt opgehaald uit de database.</div>
+          <input type="number" value=${maxResults} onInput=${e => setMaxResults(Math.max(1, Math.min(200, Number(e.target.value) || 50)))} min="1" max="200" class="field mono" style="text-align:center;font-size:16px;font-weight:600"/>
+          <div style="font-size:10px;color:var(--dim);margin-top:6px">Tussen 1 en 200 (standaard 50)</div>
+        </div>
+
+        <div class="card">
+          <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:10px">Opslag info</div>
+          <div style="font-size:11px;color:var(--dim);line-height:1.6">
+            Eigen oefeningen (met foto's) worden lokaal opgeslagen in je browser. Foto's worden automatisch verkleind tot max 500px voor efficiënte opslag.<br/><br/>
+            <span style="color:var(--muted)">${customExercises.length} eigen oefening${customExercises.length !== 1 ? 'en' : ''} opgeslagen.</span>
           </div>
         </div>
       </div>`}
