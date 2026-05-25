@@ -97,13 +97,12 @@ const jset = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 const getKey = () => localStorage.getItem('ct_key') || '';
 const setKey = v => localStorage.setItem('ct_key', v);
 function loadLog() { const d = jget('ct_log', {}); return d.date === TODAY() ? d.items || [] : []; }
-function saveLog(log) { jset('ct_log', { date: TODAY(), items: log }); }
-const loadPresets = () => jget('ct_presets', []);
-const savePresets = (presets) => jset('ct_presets', presets);
-const loadWorkouts = () => jget('ct_workouts', []);
-const saveWorkouts = (w) => jset('ct_workouts', w);
-const loadCustomExercises = () => jget('ct_custom_exercises', []);
-const saveCustomExercises = (ex) => jset('ct_custom_exercises', ex);
+async function saveLog(log) {
+  jset('ct_log', { date: TODAY(), items: log });
+  const history = await dbGet('ct_food_history', {});
+  history[TODAY()] = log;
+  await dbSet('ct_food_history', history);
+}
 const DEFAULT_GOALS = { calorieën: 2800, eiwitten: 150, koolhydraten: 200, vetten: 65 };
 
 // ── Image resize helper (houdt localStorage klein) ────────────────────────────
@@ -274,21 +273,17 @@ const getCFUsage = () => {
 };
 const incrementCFUsage = () => { const data = getCFUsage(); data.count = (data.count || 0) + 1; localStorage.setItem(CF_USAGE_KEY, JSON.stringify(data)); };
 
-const getCachedResults = (term) => {
-  try {
-    const cache = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || '{}');
-    const entry = cache[term.toLowerCase()];
-    if (!entry) return null;
-    if (Date.now() - entry.ts > CACHE_TTL_MS) return null;
-    return entry.results;
-  } catch { return null; }
+const getCachedResults = async (term) => {
+  const cache = await dbGet('ct_search_cache', {});
+  const entry = cache[term.toLowerCase()];
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) return null;
+  return entry.results;
 };
-const setCachedResults = (term, results) => {
-  try {
-    const cache = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || '{}');
-    cache[term.toLowerCase()] = { results, ts: Date.now() };
-    localStorage.setItem(SEARCH_CACHE_KEY, JSON.stringify(cache));
-  } catch {}
+const setCachedResults = async (term, results) => {
+  const cache = await dbGet('ct_search_cache', {});
+  cache[term.toLowerCase()] = { results, ts: Date.now() };
+  await dbSet('ct_search_cache', cache);
 };
 
 const NL_EN = {
@@ -699,9 +694,18 @@ function AddCustomExerciseModal({ onClose, onSave }) {
 }
 
 // ── WorkoutBuilder ────────────────────────────────────────────────────────────
-function WorkoutBuilder({ onClose, onSave, customExercises = [] }) {
+function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = null }) {
   const [naam, setNaam] = useState('');
   const [oefeningen, setOefeningen] = useState([]);
+  useEffect(() => {
+  if (editWorkout) {
+    setNaam(editWorkout.naam);
+    setOefeningen(editWorkout.oefeningen.map((oe, idx) => ({
+      ...oe,
+      id: Date.now() + idx + Math.random(), // unieke temp-id’s
+    })));
+  }
+}, [editWorkout]);
   const [zoekterm, setZoekterm] = useState('');
   const [zoekresultaten, setZoekresultaten] = useState([]);
   const [zoeken, setZoeken] = useState(false);
@@ -754,15 +758,16 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [] }) {
   const verwijderOefening = (id) => setOefeningen(prev => prev.filter(e => e.id !== id));
 
   const handleOpslaan = () => {
-    if (!naam.trim() || oefeningen.length === 0) return;
-    onSave({
-      id: Date.now(),
-      naam: naam.trim(),
-      aangemaakt: new Date().toLocaleDateString('nl-NL'),
-      oefeningen: oefeningen.map(({ id, ...rest }) => rest)
-    });
-    onClose();
+  if (!naam.trim() || oefeningen.length === 0) return;
+  const workoutData = {
+    id: editWorkout ? editWorkout.id : Date.now(),
+    naam: naam.trim(),
+    aangemaakt: editWorkout ? editWorkout.aangemaakt : new Date().toLocaleDateString('nl-NL'),
+    oefeningen: oefeningen.map(({ id, ...rest }) => rest),
   };
+  onSave(workoutData, editWorkout ? editWorkout.id : null);
+  onClose();
+};
 
   return html`
     <div class="modal-backdrop" onClick=${e => e.target === e.currentTarget && onClose()}>
@@ -860,8 +865,9 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [] }) {
     </div>`;
 }
 
+
 // ── WorkoutCard ───────────────────────────────────────────────────────────────
-function WorkoutCard({ workout, onDelete }) {
+function WorkoutCard({ workout, onDelete, onEdit, onLog }) {
   const [open, setOpen] = useState(false);
   return html`
     <div style="background:var(--s1);border:1px solid ${open?'var(--p)':'var(--border)'};border-radius:12px;margin-bottom:10px;overflow:hidden;transition:border-color .2s">
@@ -872,6 +878,10 @@ function WorkoutCard({ workout, onDelete }) {
           <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${workout.oefeningen.length} oefeningen · ${workout.aangemaakt}</div>
         </div>
         <div style="color:var(--muted);font-size:14px;transition:transform .2s;transform:rotate(${open?'180':'0'}deg);flex-shrink:0">▾</div>
+        <button onClick=${e => { e.stopPropagation(); onEdit(workout); }}
+          style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:16px;line-height:1;padding:4px;transition:color .15s;flex-shrink:0"
+          onMouseOver=${e => e.currentTarget.style.color='var(--c)'}
+          onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>✎</button>
         <button onClick=${e => { e.stopPropagation(); onDelete(workout.id); }}
           style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:18px;line-height:1;padding:4px;transition:color .15s;flex-shrink:0"
           onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
@@ -890,6 +900,25 @@ function WorkoutCard({ workout, onDelete }) {
                 ${oe.isCustom && html`<div style="font-size:10px;color:var(--p);margin-top:2px">Eigen oefening</div>`}
               </div>
             </div>`)}
+          ${workout.spiergroepen && workout.spiergroepen.length > 0 && html`
+            <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px">
+              <div class="section-label" style="margin-bottom:8px">Focus spiergroepen</div>
+              ${workout.spiergroepen.map(sg => {
+                const pct = Math.round(sg.percentage);
+                return html`
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px">
+                    <div style="width:80px; font-size:11px; color:var(--muted); text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${sg.naam}</div>
+                    <div style="flex:1; background:var(--s2); border-radius:4px; height:6px; overflow:hidden">
+                      <div style="width:${pct}%; height:100%; background:var(--p); border-radius:4px; transition:width .4s"></div>
+                    </div>
+                    <div class="mono" style="font-size:10px; color:var(--p); width:30px">${pct}%</div>
+                  </div>`;
+              })}
+            </div>`}
+          <button onClick=${e => { e.stopPropagation(); onLog(workout); }}
+            style="margin-top:12px; width:100%; background:var(--c); color:var(--bg); border:none; border-radius:10px; padding:9px; font-weight:700; font-size:12px; cursor:pointer;">
+            📌 Vandaag gedaan
+          </button>
         </div>`}
     </div>`;
 }
@@ -1041,6 +1070,74 @@ function AddProductModal({ onClose, onSave }) {
     </div>`;
 }
 
+function NutritionChart() {
+  const [history, setHistory] = useState({});
+  const [days, setDays] = useState(7);
+  useEffect(() => { dbGet('ct_food_history', {}).then(setHistory); }, []);
+
+  const dates = Object.keys(history).sort().slice(-days);
+  const calorieData = dates.map(d => {
+    const items = history[d] || [];
+    return items.reduce((sum, i) => sum + (i.calorieën || 0), 0);
+  });
+  const maxCal = Math.max(...calorieData, 1);
+
+  return html`
+    <div class="card">
+      <div class="section-label">Calorieën per dag</div>
+      <div style="font-size:11px; color:var(--dim); margin-bottom:12px">Laatste ${days} dagen</div>
+      <div style="display:flex; align-items:flex-end; gap:6px; height:120px; padding:0 4px;">
+        ${dates.map((d, idx) => {
+          const pct = (calorieData[idx] / maxCal) * 100;
+          return html`
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;">
+              <div style="font-size:10px; color:var(--muted)">${Math.round(calorieData[idx])}</div>
+              <div style="width:100%; height:${pct}%; background:var(--p); border-radius:4px 4px 0 0; min-height:2px;"></div>
+              <div style="font-size:9px; color:var(--dim)">${d.slice(5)}</div>
+            </div>`;
+        })}
+      </div>
+    </div>`;
+}
+
+function GymChart({ workouts }) {
+  const [history, setHistory] = useState({});
+  useEffect(() => { dbGet('ct_workout_history', {}).then(setHistory); }, []);
+
+  const today = new Date();
+  const weeks = [];
+  for (let w = 0; w < 12; w++) {
+    const week = [];
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - (w * 7 + d));
+      const key = date.toISOString().slice(0, 10);
+      week.push({ key, count: (history[key] || []).length });
+    }
+    weeks.push(week);
+  }
+  weeks.reverse(); // nieuwste weken links
+
+  const maxCount = Math.max(...weeks.flat().map(d => d.count), 1);
+
+  return html`
+    <div class="card">
+      <div class="section-label">Workout activiteit</div>
+      <div style="display:flex; gap:3px; overflow-x:auto; padding-bottom:8px;">
+        ${weeks.map((week, wi) => html`
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            ${week.map(day => {
+              const intensity = Math.min(day.count / maxCount, 1);
+              const color = intensity === 0 ? 'var(--s2)' : `rgba(133,176,152,${0.2 + intensity * 0.8})`;
+              return html`<div title="${day.key}: ${day.count} sessies" style="width:12px; height:12px; border-radius:2px; background:${color}; border:1px solid var(--border);"></div>`;
+            })}
+          </div>`
+        )}
+      </div>
+      <div style="font-size:10px; color:var(--dim); margin-top:8px;">Hoe groener, hoe meer sessies</div>
+    </div>`;
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const [log, setLog] = useState(loadLog);
@@ -1067,14 +1164,26 @@ function App() {
   const [gSaved, setGSaved] = useState(false);
   const [usageTick, setUsageTick] = useState(0);
   const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 100));
-  const [presets, setPresets] = useState(loadPresets);
-  const [customProducts, setCustomProducts] = useState(() => jget('ct_custom_products', []));
+  const [presets, setPresets] = useState([]);
+  const [customProducts, setCustomProducts] = useState([]);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showMealBuilder, setShowMealBuilder] = useState(false);
-  const [workouts, setWorkouts] = useState(loadWorkouts);
+  const [workouts, setWorkouts] = useState([]);
+  const [customExercises, setCustomExercises] = useState([]);
+
+useEffect(() => { loadWorkouts().then(setWorkouts); }, []);
+useEffect(() => { loadCustomExercises().then(setCustomExercises); }, []);
+useEffect(() => { loadPresets().then(setPresets); }, []);
+useEffect(() => {
+  (async () => {
+    const prods = await dbGet('ct_custom_products', []);
+    setCustomProducts(prods);
+  })();
+}, []);
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
-  const [customExercises, setCustomExercises] = useState(loadCustomExercises);
+  const [editingWorkout, setEditingWorkout] = useState(null);
   const [showAddExercise, setShowAddExercise] = useState(false);
+  const [progressView, setProgressView] = useState('voeding');
   const [libTab, setLibTab] = useState('maaltijden');
   const [uploadedImage, setUploadedImage] = useState(null);
   const fileInputRef = useRef(null);
@@ -1084,7 +1193,7 @@ function App() {
 
   useEffect(() => saveLog(log), [log]);
   useEffect(() => { jset('ct_maxResults', maxResults); }, [maxResults]);
-  useEffect(() => { jset('ct_custom_products', customProducts); }, [customProducts]);
+  useEffect(() => { dbSet('ct_custom_products', customProducts); }, [customProducts]);
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -1134,10 +1243,43 @@ function App() {
     setPresets(updated); savePresets(updated);
   };
   const handleSaveMeal = (preset) => { const updated = [...presets, preset]; setPresets(updated); savePresets(updated); };
-  const handleSaveWorkout = (workout) => { const updated = [...workouts, workout]; setWorkouts(updated); saveWorkouts(updated); };
+  const handleSaveWorkout = async (workoutData, editId) => {
+  let updated;
+  if (editId) {
+    updated = workouts.map(w => w.id === editId ? { ...w, ...workoutData, id: editId } : w);
+  } else {
+    updated = [...workouts, workoutData];
+  }
+  setWorkouts(updated);
+  await saveWorkouts(updated);
+  setEditingWorkout(null);
+  // start spiergroep‑analyse (stap 3)
+  analyzeWorkoutMuscles(workoutData);
+};
   const handleDeleteWorkout = (id) => { const updated = workouts.filter(w => w.id !== id); setWorkouts(updated); saveWorkouts(updated); };
+  const handleLogWorkout = async (workout) => {
+  const today = TODAY();
+  const history = await dbGet('ct_workout_history', {});
+  const dayEntries = history[today] || [];
+  dayEntries.push({
+    workoutId: workout.id,
+    naam: workout.naam,
+    timestamp: Date.now(),
+  });
+  history[today] = dayEntries;
+  await dbSet('ct_workout_history', history);
+};
   const addCustomProduct = (product) => setCustomProducts(prev => [...prev, { ...product, id: Date.now() + Math.random() }]);
   const deleteCustomProduct = (id) => setCustomProducts(prev => prev.filter(p => p.id !== id));
+  const analyzeWorkoutMuscles = async (workoutData) => {
+  if (!workoutData.oefeningen || workoutData.oefeningen.length === 0) return;
+  const spiergroepen = await analyzeMuscles(workoutData.oefeningen);
+  if (spiergroepen) {
+    const updated = workouts.map(w => w.id === workoutData.id ? { ...w, spiergroepen } : w);
+    setWorkouts(updated);
+    await saveWorkouts(updated);
+  }
+};
 
   // ── OFF zoeken ─────────────────────────────────────────────────────────────
   const handleOFFSearch = async () => {
@@ -1221,6 +1363,21 @@ function App() {
     finally { setAiLoading(false); setTimeout(() => aiInputRef.current?.focus(), 50); }
   };
 
+  const MUSCLE_ANALYSIS_SYSTEM = `Je bent een sportwetenschapper. Gegeven een lijst oefeningen, geef ALLEEN JSON: {"spiergroepen":[{"naam":"string","percentage":number}]}. De percentages moeten optellen tot 100. Focus op de 5 meest belaste spiergroepen. ALLEEN JSON.`;
+
+async function analyzeMuscles(exercises) {
+  if (!getKey()) return null;
+  const names = exercises.map(e => e.naam).join(', ');
+  try {
+    const data = await callGemini(MUSCLE_ANALYSIS_SYSTEM, names, 500);
+    const parsed = parseGeminiJson(data);
+    return parsed.spiergroepen || null;
+  } catch (e) {
+    console.warn('Spieranalyse mislukt:', e);
+    return null;
+  }
+}
+
   // ── Barcode ────────────────────────────────────────────────────────────────
   const handleBarcode = async (code) => {
     setScanning(false);
@@ -1242,7 +1399,7 @@ function App() {
 
   return html`<div>
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
-    ${showWorkoutBuilder && html`<${WorkoutBuilder} customExercises=${customExercises} onClose=${() => setShowWorkoutBuilder(false)} onSave=${handleSaveWorkout}/>`}
+    ${showWorkoutBuilder && html`<${WorkoutBuilder} customExercises=${customExercises} editWorkout=${editingWorkout} onClose=${() => { setShowWorkoutBuilder(false); setEditingWorkout(null); }} onSave=${handleSaveWorkout}/>`}
     ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)}/>`}
     ${showAddProduct && html`<${AddProductModal} onClose=${() => setShowAddProduct(false)} onSave=${addCustomProduct}/>`}
     ${showAddExercise && html`<${AddCustomExerciseModal} onClose=${() => setShowAddExercise(false)} onSave=${handleSaveCustomExercise}/>`}
@@ -1284,6 +1441,7 @@ function App() {
       <div style="max-width:480px;margin:0 auto;display:flex">
         <button class=${'tab'+(tab==='add'?' on':'')} onClick=${()=>setTab('add')}>Toevoegen</button>
         <button class=${'tab'+(tab==='workout'?' on':'')} onClick=${()=>setTab('workout')}>Workouts</button>
+        <button class=${'tab'+(tab==='progress'?' on':'')} onClick=${()=>setTab('progress')}>Voortgang</button>
         <button class=${'tab'+(tab==='settings'?' on':'')} onClick=${()=>setTab('settings')} style="display:flex;align-items:center;justify-content:center;gap:5px">
           Instellingen
           <span style="width:7px;height:7px;border-radius:50%;background:${key?'var(--p)':'var(--danger)'};flex-shrink:0"/>
@@ -1416,7 +1574,7 @@ function App() {
         <!-- Mijn workouts -->
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div style="font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">Mijn workouts</div>
-          <button onClick=${() => setShowWorkoutBuilder(true)}
+          <button onClick=${() => { setEditingWorkout(null); setShowWorkoutBuilder(true); }}
             style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s"
             onMouseOver=${e => e.currentTarget.style.opacity='.8'}
             onMouseOut=${e => e.currentTarget.style.opacity='1'}>
@@ -1424,9 +1582,9 @@ function App() {
           </button>
         </div>
         ${workouts.length === 0 && html`<div style="text-align:center;color:var(--border);padding:32px 20px;font-size:13px"><div style="font-size:30px;margin-bottom:10px">🏋️</div>Nog geen workouts opgeslagen</div>`}
-        ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout}/>`)}
+        ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout} onEdit=${(workout) => { setEditingWorkout(workout); setShowWorkoutBuilder(true); }} onLog=${handleLogWorkout} />`)}
 
-        <!-- Eigen oefeningen bibliotheek -->
+                <!-- Eigen oefeningen bibliotheek -->
         <div class="card" style="margin-top:8px;border-top:2px solid #85b09835">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <div>
@@ -1543,11 +1701,18 @@ function App() {
           </div>
         </div>
       </div>`}
+
+      ${tab==='progress' && html`
+        <div>
+          <div style="display:flex; gap:6px; margin-bottom:16px">
+            <button onClick=${() => setProgressView('voeding')} style="padding:5px 12px; border-radius:20px; font-size:11px; font-weight:600; cursor:pointer; border:1px solid ${progressView==='voeding'?'var(--p)':'var(--border)'}; background:${progressView==='voeding'?'var(--p)':'transparent'}; color:${progressView==='voeding'?'var(--bg)':'var(--muted)'}">Voeding</button>
+            <button onClick=${() => setProgressView('gym')} style="padding:5px 12px; border-radius:20px; font-size:11px; font-weight:600; cursor:pointer; border:1px solid ${progressView==='gym'?'var(--c)':'var(--border)'}; background:${progressView==='gym'?'var(--c)':'transparent'}; color:${progressView==='gym'?'var(--bg)':'var(--muted)'}">Gym</button>
+          </div>
+          ${progressView==='voeding' && html`<${NutritionChart}/>`}
+          ${progressView==='gym' && html`<${GymChart} workouts=${workouts}/>`}
+        </div>`}
     </div>
   </div>`;
 }
 
 render(html`<${App}/>`, document.getElementById('app'));
-</script>
-</body>
-</html>
