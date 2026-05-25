@@ -279,9 +279,7 @@ const callGemini = async (systemText, userText, maxTokens = 1000) => {
 
 const parseGeminiJson = (data) => {
   const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-  // Haal alle ```json ... ``` of ``` ... ``` blokken weg
   let clean = text.replace(/```json|```/g, '').trim();
-  // Zoek naar het eerste '{' en het laatste '}'
   const start = clean.indexOf('{');
   const end = clean.lastIndexOf('}');
   if (start !== -1 && end !== -1 && end > start) {
@@ -290,10 +288,23 @@ const parseGeminiJson = (data) => {
       return JSON.parse(clean);
     } catch {}
   }
-  // Als dat niet lukt, probeer de hele string als JSON te parsen
-  try {
-    return JSON.parse(clean);
-  } catch {}
+  // Als de JSON is afgekapt, probeer te repareren
+  if (start !== -1 && (end === -1 || end <= start)) {
+    let fixed = clean.slice(start);
+    // Sluit eventueel ontbrekende aanhalingstekens
+    if (fixed.endsWith('"')) {
+      fixed = fixed.slice(0, -1) + '"}';
+    } else if (fixed.endsWith(',')) {
+      fixed = fixed.slice(0, -1);
+    }
+    // Voeg ontbrekende } ] } toe
+    if (!fixed.endsWith('}')) {
+      fixed += '}';
+    }
+    try {
+      return JSON.parse(fixed);
+    } catch {}
+  }
   throw new Error('Geen geldige JSON ontvangen.');
 };
 
@@ -1486,17 +1497,16 @@ useEffect(() => {
     finally { setAiLoading(false); setTimeout(() => aiInputRef.current?.focus(), 50); }
   };
 
-  const MUSCLE_ANALYSIS_SYSTEM = `Je bent een sportwetenschapper. Voor de volgende oefeningen geef je een JSON-object terug met de vijf meest belaste spiergroepen en hun aandeel in procenten. Antwoord uitsluitend met het kale JSON-object, zonder markdown, zonder uitleg, zonder codeblokken. Het JSON-object moet exact dit formaat hebben:
+  const MUSCLE_ANALYSIS_SYSTEM = `Je bent een sportwetenschapper. Geef ALLEEN dit exacte JSON-formaat terug:
 {"spiergroepen":[{"naam":"Borst","percentage":40},{"naam":"Triceps","percentage":25},{"naam":"Schouders","percentage":20},{"naam":"Rug","percentage":10},{"naam":"Benen","percentage":5}]}
-De percentages moeten bij benadering optellen tot 100.`;
-
+Geen uitleg.`;
 async function analyzeMuscles(exercises) {
   if (!getKey()) return null;
   const names = exercises.map(e => e.naam).join(', ');
 
   let data;
   try {
-    data = await callGemini(MUSCLE_ANALYSIS_SYSTEM, names, 1024);
+    data = await callGemini(MUSCLE_ANALYSIS_SYSTEM, names, 2048);
   } catch (e) {
     console.warn('API call mislukt:', e);
     throw e;
