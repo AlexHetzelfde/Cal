@@ -552,28 +552,26 @@ const offBarcode = async (barcode, signal) => {
   return null;
 };
 
-const searchWger = async (term) => {
-  try {
-    const res = await fetch(
-      `https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(term)}&language=english&format=json`
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.suggestions || [];
-  } catch { return []; }
+// ── Free Exercise DB ──────────────────────────────────────────────────────────
+const EXERCISE_DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
+const IMG_BASE = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
+let exerciseDB = null;
+
+const loadExerciseDB = async () => {
+  if (exerciseDB) return exerciseDB;
+  const res = await fetch(EXERCISE_DB_URL);
+  exerciseDB = await res.json();
+  return exerciseDB;
 };
 
-const getExerciseImage = async (baseId) => {
-  try {
-    const res = await fetch(
-      `https://wger.de/api/v2/exerciseimage/?exercise=${baseId}&format=json`
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.results?.[0]?.image || null;
-  } catch { return null; }
+const searchExercises = async (term) => {
+  const db = await loadExerciseDB();
+  const q = term.toLowerCase();
+  return db
+    .filter(e => e.name.toLowerCase().includes(q))
+    .slice(0, 8);
 };
-
+  
 // ── Ring ──────────────────────────────────────────────────────────────────────
 function Ring({ value, goal, label, color }) {
   const r = 26, c = 2 * Math.PI * r, pct = Math.min(value / goal, 1), over = value > goal;
@@ -859,45 +857,46 @@ function WorkoutBuilder({ onClose, onSave }) {
   const [zoekterm, setZoekterm] = useState('');
   const [zoekresultaten, setZoekresultaten] = useState([]);
   const [zoeken, setZoeken] = useState(false);
-  const [imageLoading, setImageLoading] = useState(false);
 
   const handleZoek = async () => {
-    if (!zoekterm.trim()) return;
-    setZoeken(true);
-    setZoekresultaten([]);
-    const results = await searchWger(zoekterm);
-    setZoekresultaten(results.slice(0, 8));
+  if (!zoekterm.trim()) return;
+  setZoeken(true);
+  setZoekresultaten([]);
+  try {
+    const results = await searchExercises(zoekterm);
+    setZoekresultaten(results);
+  } catch (e) {
+    // DB kon niet geladen worden, handmatig toevoegen blijft beschikbaar
+  } finally {
     setZoeken(false);
-  };
+  }
+};
 
-  const voegToe = async (suggestion) => {
-    setImageLoading(true);
-    setZoekresultaten([]);
-    setZoekterm('');
-    const baseId = suggestion.data?.base_id;
-    const image = baseId ? await getExerciseImage(baseId) : null;
-    setOefeningen(prev => [...prev, {
-      id: Date.now() + Math.random(),
-      naam: suggestion.value,
-      image,
-      sets: 3,
-      reps: 10
-    }]);
-    setImageLoading(false);
-  };
+  const voegToe = (exercise) => {
+  setZoekresultaten([]);
+  setZoekterm('');
+  const image = exercise.images?.[0] ? IMG_BASE + exercise.images[0] : null;
+  setOefeningen(prev => [...prev, {
+    id: Date.now() + Math.random(),
+    naam: exercise.name,
+    image,
+    sets: 3,
+    reps: 10
+  }]);
+};
 
-  const voegHandmatigToe = () => {
-    if (!zoekterm.trim()) return;
-    setOefeningen(prev => [...prev, {
-      id: Date.now() + Math.random(),
-      naam: zoekterm.trim(),
-      image: null,
-      sets: 3,
-      reps: 10
-    }]);
-    setZoekterm('');
-    setZoekresultaten([]);
-  };
+const voegHandmatigToe = () => {
+  if (!zoekterm.trim()) return;
+  setOefeningen(prev => [...prev, {
+    id: Date.now() + Math.random(),
+    naam: zoekterm.trim(),
+    image: null,
+    sets: 3,
+    reps: 10
+  }]);
+  setZoekterm('');
+  setZoekresultaten([]);
+};
 
   const updateOefening = (id, field, value) => {
     setOefeningen(prev => prev.map(e => e.id === id ? {...e, [field]: value} : e));
@@ -950,12 +949,12 @@ function WorkoutBuilder({ onClose, onSave }) {
             ${zoekresultaten.length > 0 && html`
               <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:8px">
                 ${zoekresultaten.map((r, i) => html`
-                  <div onClick=${() => voegToe(r)}
+                 <div onClick=${() => voegToe(r)}
                     style="padding:10px 12px;cursor:pointer;font-size:13px;border-bottom:${i < zoekresultaten.length-1?'1px solid var(--border)':'none'};transition:background .15s"
                     onMouseOver=${e => e.currentTarget.style.background='var(--s2)'}
                     onMouseOut=${e => e.currentTarget.style.background='transparent'}>
-                    ${r.value}
-                  </div>`)}
+                    ${r.name}
+                 </div>`)}
               </div>`}
             ${zoekresultaten.length === 0 && zoekterm.trim() && !zoeken && html`
               <button onClick=${voegHandmatigToe}
@@ -964,11 +963,6 @@ function WorkoutBuilder({ onClose, onSave }) {
                 onMouseOut=${e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--muted)'}}>
                 + "${zoekterm}" handmatig toevoegen (zonder plaatje)
               </button>`}
-            ${imageLoading && html`
-              <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
-                <div class="spinner" style="border-top-color:var(--c)"/>
-                <span style="font-size:12px;color:var(--muted)">Plaatje ophalen…</span>
-              </div>`}
           </div>
 
           ${oefeningen.length > 0 && html`
