@@ -565,6 +565,39 @@ function LogCard({ item, onRemove }) {
     </div>`;
 }
 
+function MealLogCard({ meal, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const totals = meal.items.reduce((a, i) => ({
+    calorieën: a.calorieën + (i.calorieën || 0),
+    eiwitten: a.eiwitten + (i.eiwitten || 0),
+    koolhydraten: a.koolhydraten + (i.koolhydraten || 0),
+    vetten: a.vetten + (i.vetten || 0),
+  }), { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
+
+  return html`
+    <div class="logcard" style="flex-direction:column;align-items:stretch;padding:0;gap:0;overflow:hidden">
+      <div onClick=${() => setOpen(p => !p)} style="display:flex;align-items:center;gap:10px;padding:11px 13px;cursor:pointer;">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:13px">🍽 ${meal.naam}</div>
+          <div style="color:var(--muted);font-size:11px;margin-top:2px">${meal.items.length} items</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div class="mono" style="font-size:18px;font-weight:700;line-height:1">${Math.round(totals.calorieën)}</div>
+          <div style="color:var(--muted);font-size:9px;margin-top:2px">kcal</div>
+        </div>
+        <div style="color:var(--muted);font-size:14px;transition:transform .2s;transform:rotate(${open?'180':'0'}deg);flex-shrink:0">▾</div>
+        <button onClick=${e => { e.stopPropagation(); onRemove(meal.id); }}
+          style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:18px;line-height:1;padding:4px;transition:color .15s;flex-shrink:0"
+          onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
+          onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
+      </div>
+      ${open && html`
+        <div style="border-top:1px solid var(--border);padding:8px 13px 12px">
+          ${meal.items.map(item => html`<${LogCard} key=${item.id} item=${item} onRemove=${() => {}} />`)}
+        </div>`}
+    </div>`;
+}
+  
 // ── ProductRow (modal) ────────────────────────────────────────────────────────
 function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
   const n = product.nutriments;
@@ -1326,8 +1359,43 @@ useEffect(() => {
     e.target.value = '';
   };
 
-  const totals = log.reduce((a, i) => ({ calorieën: a.calorieën + i.calorieën, eiwitten: a.eiwitten + i.eiwitten, koolhydraten: a.koolhydraten + i.koolhydraten, vetten: a.vetten + i.vetten }), { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
-  const addItems = items => setLog(p => [...p, ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
+    const totals = log.reduce((a, entry) => {
+    if (entry.isMeal) {
+      const mealTotals = entry.items.reduce((m, i) => ({
+        calorieën: m.calorieën + (i.calorieën || 0),
+        eiwitten: m.eiwitten + (i.eiwitten || 0),
+        koolhydraten: m.koolhydraten + (i.koolhydraten || 0),
+        vetten: m.vetten + (i.vetten || 0),
+      }), { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
+      return {
+        calorieën: a.calorieën + mealTotals.calorieën,
+        eiwitten: a.eiwitten + mealTotals.eiwitten,
+        koolhydraten: a.koolhydraten + mealTotals.koolhydraten,
+        vetten: a.vetten + mealTotals.vetten,
+      };
+    } else {
+      return {
+        calorieën: a.calorieën + (entry.calorieën || 0),
+        eiwitten: a.eiwitten + (entry.eiwitten || 0),
+        koolhydraten: a.koolhydraten + (entry.koolhydraten || 0),
+        vetten: a.vetten + (entry.vetten || 0),
+      };
+    }
+  }, { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
+  const createMealEntry = (name, items) => ({
+  isMeal: true,
+  naam: name,
+  items: items.map(i => ({ ...i, id: Date.now() + Math.random() })),
+  id: Date.now() + Math.random(),
+});
+  const addItems = (items, mealName) => {
+  if (mealName) {
+    const meal = createMealEntry(mealName, items);
+    setLog(p => [...p, meal]);
+  } else {
+    setLog(p => [...p, ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
+  }
+};
 
   const addOFF = (product, qty) => {
     const n = product.nutriments, f = qty / 100;
@@ -1358,7 +1426,7 @@ useEffect(() => {
   };
 
   // ── Presets & workouts ─────────────────────────────────────────────────────
-  const handleLoadPreset = (preset) => addItems(preset.items.map(item => ({ ...item })));
+  const handleLoadPreset = (preset) => addItems(preset.items.map(item => ({ ...item })), preset.naam);
   const handleDeletePreset = (index) => {
     if (!confirm('Weet je zeker dat je deze maaltijd wilt verwijderen?')) return;
     const updated = presets.filter((_, i) => i !== index);
@@ -1492,7 +1560,8 @@ useEffect(() => {
         response = await callGemini(NUTRITION_SYSTEM, q, 4096);
       }
       const parsed = parseGeminiJson(response);
-      addItems(parsed.items || []);
+      const mealName = aiQuery.trim() || 'AI schatting';
+      addItems(parsed.items || [], mealName);
       setAiBericht(parsed.bericht || '');
       setAiQuery('');
     } catch (e) { setAiError('Fout: ' + (e.message || 'Probeer opnieuw.')); }
@@ -1716,7 +1785,9 @@ async function analyzeMuscles(exercises) {
               <div style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">Vandaag · ${log.length} item${log.length!==1?'s':''}</div>
               <div class="mono" style="font-size:11px;color:var(--muted)">${Math.round(totals.calorieën)} kcal</div>
             </div>
-            ${[...log].reverse().map(item => html`<${LogCard} key=${item.id} item=${item} onRemove=${()=>setLog(p=>p.filter(i=>i.id!==item.id))}/>`)}
+                        ${[...log].reverse().map(entry => entry.isMeal
+              ? html`<${MealLogCard} key=${entry.id} meal=${entry} onRemove=${(id) => setLog(p => p.filter(e => e.id !== id))} />`
+              : html`<${LogCard} key=${entry.id} item=${entry} onRemove=${() => setLog(p => p.filter(e => e.id !== entry.id))} />`)}
           </div>`}
         ${log.length===0 && html`<div style="text-align:center;color:var(--border);padding:44px 20px;font-size:13px"><div style="font-size:30px;margin-bottom:10px">🍽</div>Nog niets gelogd vandaag</div>`}
       </div>`}
