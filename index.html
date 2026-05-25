@@ -969,7 +969,7 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
 
 
 // ── WorkoutCard ───────────────────────────────────────────────────────────────
-function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis }) {
+function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analysisError }) {
   const [open, setOpen] = useState(false);
   return html`
     <div style="background:var(--s1);border:1px solid ${open?'var(--p)':'var(--border)'};border-radius:12px;margin-bottom:10px;overflow:hidden;transition:border-color .2s">
@@ -1006,6 +1006,10 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis }) {
             <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px; display:flex; align-items:center; gap:8px;">
               <div class="spinner" style="border-top-color:var(--p);"/>
               <span style="font-size:12px; color:var(--muted);">Spiergroepen analyseren…</span>
+            </div>`}
+                      ${analysisError && !workout.spiergroepen && html`
+            <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px; color:var(--danger); font-size:12px;">
+              ${analysisError}
             </div>`}
           ${workout.spiergroepen && workout.spiergroepen.length > 0 && html`
             <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px">
@@ -1292,6 +1296,7 @@ useEffect(() => {
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [progressView, setProgressView] = useState('voeding');
   const [analysisLoading, setAnalysisLoading] = useState({});
+  const [analysisErrors, setAnalysisErrors] = useState({});
   const [libTab, setLibTab] = useState('maaltijden');
   const [uploadedImage, setUploadedImage] = useState(null);
   const fileInputRef = useRef(null);
@@ -1392,6 +1397,8 @@ useEffect(() => {
       setWorkouts(updated);
       await saveWorkouts(updated);
     }
+  } catch (e) {
+    setAnalysisErrors(prev => ({ ...prev, [workoutData.id]: e.message || 'Onbekende fout bij spieranalyse' }));
   } finally {
     setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: false }));
   }
@@ -1479,7 +1486,9 @@ useEffect(() => {
     finally { setAiLoading(false); setTimeout(() => aiInputRef.current?.focus(), 50); }
   };
 
-  const MUSCLE_ANALYSIS_SYSTEM = `Je bent een sportwetenschapper. Geef voor de onderstaande oefeningen de 5 meest belaste spiergroepen. Antwoord ALLEEN met JSON in dit formaat: {"spiergroepen":[{"naam":"spiergroep","percentage":getal}]}. De percentages moeten bij benadering optellen tot 100.`;
+  const MUSCLE_ANALYSIS_SYSTEM = `Je bent een sportwetenschapper. Voor de volgende oefeningen geef je een JSON-object terug met de vijf meest belaste spiergroepen en hun aandeel in procenten. Antwoord uitsluitend met het kale JSON-object, zonder markdown, zonder uitleg, zonder codeblokken. Het JSON-object moet exact dit formaat hebben:
+{"spiergroepen":[{"naam":"Borst","percentage":40},{"naam":"Triceps","percentage":25},{"naam":"Schouders","percentage":20},{"naam":"Rug","percentage":10},{"naam":"Benen","percentage":5}]}
+De percentages moeten bij benadering optellen tot 100.`;
 
 async function analyzeMuscles(exercises) {
   if (!getKey()) return null;
@@ -1487,10 +1496,15 @@ async function analyzeMuscles(exercises) {
   try {
     const data = await callGemini(MUSCLE_ANALYSIS_SYSTEM, names, 1024);
     const parsed = parseGeminiJson(data);
-    return parsed.spiergroepen || null;
+    if (!parsed || !parsed.spiergroepen) {
+      // Haal ruwe tekst op voor de foutmelding
+      const raw = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+      throw new Error('Ongeldige JSON ontvangen. Ruwe respons: ' + raw);
+    }
+    return parsed.spiergroepen;
   } catch (e) {
     console.warn('Spieranalyse mislukt:', e);
-    return null;
+    throw e; // gooi door zodat analyzeWorkoutMuscles de foutmelding kan tonen
   }
 }
 
@@ -1698,7 +1712,7 @@ async function analyzeMuscles(exercises) {
           </button>
         </div>
         ${workouts.length === 0 && html`<div style="text-align:center;color:var(--border);padding:32px 20px;font-size:13px"><div style="font-size:30px;margin-bottom:10px">🏋️</div>Nog geen workouts opgeslagen</div>`}
-        ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout} onEdit=${(workout) => { setEditingWorkout(workout); setShowWorkoutBuilder(true); }} onLog=${handleLogWorkout} loadingAnalysis=${analysisLoading[w.id]} />`)}
+        ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout} onEdit=${(workout) => { setEditingWorkout(workout); setShowWorkoutBuilder(true); }} onLog=${handleLogWorkout} loadingAnalysis=${analysisLoading[w.id]} analysisError=${analysisErrors[w.id]} />`)}
 
                 <!-- Eigen oefeningen bibliotheek -->
         <div class="card" style="margin-top:8px;border-top:2px solid #85b09835">
