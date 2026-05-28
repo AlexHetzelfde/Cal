@@ -194,6 +194,7 @@ const loadCustomExercises = () => dbGet('ct_custom_exercises', []);
 const saveCustomExercises = (ex) => dbSet('ct_custom_exercises', ex);
 const loadPresets = () => dbGet('ct_presets', []);
 const savePresets = (p) => dbSet('ct_presets', p);
+const saveFavorites = (favs) => { dbSet('ct_favorites', favs); };
 
 // ── Image resize helper (houdt localStorage klein) ────────────────────────────
 const resizeImage = (dataUrl, maxWidth = 500, maxHeight = 500, quality = 0.75) => {
@@ -599,7 +600,7 @@ function MealLogCard({ meal, onRemove }) {
 }
   
 // ── ProductRow (modal) ────────────────────────────────────────────────────────
-function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
+function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite, onToggleFavorite }) {
   const n = product.nutriments;
   const rawServing = product.serving_size || '';
   const servingGrams = parseServingSize(rawServing);
@@ -618,6 +619,8 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
     return isJustGrams ? `1 portie · ${servingGrams}g` : `1 portie · ${servingGrams}g (${cleaned})`;
   })();
   const add = () => { onAdd(product, qty); setDone(true); setTimeout(() => setDone(false), 1800); };
+  const favKey = (product.product_name || '') + '|' + (product.brands || '');
+  const favActive = typeof isFavorite === 'function' ? isFavorite(favKey) : !!isFavorite;
   return html`
     <div class=${'product-row' + (expanded ? ' expanded' : '')}>
       <div class="product-row-header" onClick=${onToggle}>
@@ -634,6 +637,11 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
           <div class="mono" style="font-size:13px;font-weight:700;color:${expanded?'var(--c)':'var(--text)'}">${cal100}</div>
           <div style="font-size:9px;color:var(--muted)">kcal/100g</div>
         </div>
+        <button onClick=${(e) => { e.stopPropagation(); onToggleFavorite && onToggleFavorite(favKey, product); }}
+          style="background:none;border:none;font-size:18px;cursor:pointer;padding:0 4px;color:${favActive ? '#f5c542' : 'var(--dim)'};flex-shrink:0;line-height:1;"
+          title=${favActive ? 'Verwijder uit favorieten' : 'Voeg toe aan favorieten'}>
+          ${favActive ? '★' : '☆'}
+        </button>
         <div style="flex-shrink:0;color:var(--muted);font-size:14px;margin-left:4px;transition:transform .2s;transform:rotate(${expanded?'180':'0'}deg)">▾</div>
       </div>
       ${expanded && html`
@@ -671,10 +679,14 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd }) {
 }
 
 // ── SearchModal ───────────────────────────────────────────────────────────────
-function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate }) {
+function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, favorites, onToggleFavorite }) {
   const [expandedIdx, setExpandedIdx] = useState(results.length === 1 ? 0 : null);
   const toggle = (idx) => setExpandedIdx(prev => prev === idx ? null : idx);
   const handleBackdrop = (e) => { if (e.target === e.currentTarget) onClose(); };
+  const isFav = (name, brands) => {
+    const key = (name || '') + '|' + (brands || '');
+    return (favorites || []).some(f => f.key === key);
+  };
   return html`
     <div class="modal-backdrop" onClick=${handleBackdrop}>
       <div class="modal-sheet slide-up">
@@ -697,7 +709,10 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate })
           ${results.length === 0 && !offError && html`<div style="text-align:center;color:var(--muted);padding:32px 0;font-size:13px">Geen producten gevonden</div>`}
           ${offError && html`<div style="color:var(--danger);font-size:12px;margin-bottom:12px;padding:9px 11px;background:#b8727215;border:1px solid #b8727230;border-radius:8px;line-height:1.5">${offError}</div>`}
           ${results.map(({ product, qty }, idx) => html`
-            <${ProductRow} key=${product.product_name + idx} product=${product} initialQty=${qty} expanded=${expandedIdx === idx} onToggle=${() => toggle(idx)} onAdd=${onAdd}/>`)}
+            <${ProductRow} key=${product.product_name + idx} product=${product} initialQty=${qty} expanded=${expandedIdx === idx}
+              onToggle=${() => toggle(idx)} onAdd=${onAdd}
+              isFavorite=${isFav(product.product_name, product.brands)}
+              onToggleFavorite=${onToggleFavorite}/>`)}
         </div>
       </div>
     </div>`;
@@ -1317,6 +1332,7 @@ function App() {
   const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 100));
   const [presets, setPresets] = useState([]);
   const [customProducts, setCustomProducts] = useState([]);
+  const [favorites, setFavorites] = useState([]);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showMealBuilder, setShowMealBuilder] = useState(false);
   const [workouts, setWorkouts] = useState([]);
@@ -1326,6 +1342,7 @@ function App() {
 useEffect(() => { loadWorkouts().then(setWorkouts); }, []);
 useEffect(() => { workoutsRef.current = workouts; }, [workouts]);
 useEffect(() => { loadCustomExercises().then(setCustomExercises); }, []);
+useEffect(() => { dbGet('ct_favorites', []).then(setFavorites); }, []);
 useEffect(() => { loadPresets().then(setPresets); }, []);
 useEffect(() => {
   (async () => {
@@ -1464,6 +1481,30 @@ useEffect(() => {
   await dbSet('ct_workout_history', history);
 };
   const addCustomProduct = (product) => setCustomProducts(prev => [...prev, { ...product, id: Date.now() + Math.random() }]);
+  const handleToggleFavorite = (favKey, product) => {
+  setFavorites(prev => {
+    const exists = prev.find(f => f.key === favKey);
+    let updated;
+    if (exists) {
+      updated = prev.filter(f => f.key !== favKey);
+    } else {
+      const n = product.nutriments;
+      const favItem = {
+        key: favKey,
+        naam: product.product_name,
+        brands: product.brands,
+        calorieën: getKcal100g(n),
+        eiwitten: n['proteins_100g'] || 0,
+        koolhydraten: n['carbohydrates_100g'] || 0,
+        vetten: n['fat_100g'] || 0,
+        serving_size: product.serving_size || '',
+      };
+      updated = [...prev, favItem];
+    }
+    saveFavorites(updated);
+    return updated;
+  });
+};
   const deleteCustomProduct = (id) => setCustomProducts(prev => prev.filter(p => p.id !== id));
   const analyzeWorkoutMuscles = async (workoutData) => {
   if (!workoutData.oefeningen || workoutData.oefeningen.length === 0) {
@@ -1624,7 +1665,7 @@ async function analyzeMuscles(exercises) {
     ${showAddProduct && html`<${AddProductModal} onClose=${() => setShowAddProduct(false)} onSave=${addCustomProduct}/>`}
     ${showAddExercise && html`<${AddCustomExerciseModal} onClose=${() => setShowAddExercise(false)} onSave=${handleSaveCustomExercise}/>`}
 
-    ${showModal && html`<${SearchModal} results=${offResults} query=${modalLabel || offQuery} offError=${offError} onClose=${closeModal} onAdd=${addOFF} onAIEstimate=${handleAIFromModal}/>`}
+    ${showModal && html`<${SearchModal} results=${offResults} query=${modalLabel || offQuery} offError=${offError} onClose=${closeModal} onAdd=${addOFF} onAIEstimate=${handleAIFromModal} favorites=${favorites} onToggleFavorite=${handleToggleFavorite}/>`}
 
     <!-- Header -->
     <div style="background:var(--s1);border-bottom:1px solid var(--border);padding:16px;position:sticky;top:0;z-index:20">
@@ -1721,18 +1762,23 @@ async function analyzeMuscles(exercises) {
         <!-- Bibliotheek -->
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-            <div style="display:flex;gap:6px">
-              <button onClick=${() => setLibTab('maaltijden')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='maaltijden'?'var(--p)':'var(--border)'};background:${libTab==='maaltijden'?'var(--p)':'transparent'};color:${libTab==='maaltijden'?'var(--bg)':'var(--muted)'}">
-                Maaltijden${presets.length > 0 ? ` (${presets.length})` : ''}
-              </button>
-              <button onClick=${() => setLibTab('producten')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='producten'?'var(--c)':'var(--border)'};background:${libTab==='producten'?'var(--c)':'transparent'};color:${libTab==='producten'?'var(--bg)':'var(--muted)'}">
-                Producten${customProducts.length > 0 ? ` (${customProducts.length})` : ''}
-              </button>
-            </div>
-            ${libTab === 'maaltijden'
-              ? html`<button onClick=${() => setShowMealBuilder(true)} style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer">+ Nieuw</button>`
-              : html`<button onClick=${() => setShowAddProduct(true)} style="background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer">+ Nieuw</button>`}
-          </div>
+  <div style="display:flex;gap:6px">
+    <button onClick=${() => setLibTab('maaltijden')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='maaltijden'?'var(--p)':'var(--border)'};background:${libTab==='maaltijden'?'var(--p)':'transparent'};color:${libTab==='maaltijden'?'var(--bg)':'var(--muted)'}">
+      Maaltijden${presets.length > 0 ? ` (${presets.length})` : ''}
+    </button>
+    <button onClick=${() => setLibTab('producten')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='producten'?'var(--c)':'var(--border)'};background:${libTab==='producten'?'var(--c)':'transparent'};color:${libTab==='producten'?'var(--bg)':'var(--muted)'}">
+      Producten${customProducts.length > 0 ? ` (${customProducts.length})` : ''}
+    </button>
+    <button onClick=${() => setLibTab('favorieten')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='favorieten'?'var(--f)':'var(--border)'};background:${libTab==='favorieten'?'var(--f)':'transparent'};color:${libTab==='favorieten'?'var(--bg)':'var(--muted)'}">
+      Favorieten${favorites.length > 0 ? ` (${favorites.length})` : ''}
+    </button>
+  </div>
+           ${libTab === 'maaltijden'
+  ? html`<button onClick=${() => setShowMealBuilder(true)} style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer">+ Nieuw</button>`
+  : libTab === 'producten'
+  ? html`<button onClick=${() => setShowAddProduct(true)} style="background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer">+ Nieuw</button>`
+  : null}
+    </div>
 
           ${libTab === 'maaltijden' && html`<div>
             ${presets.length === 0 && html`<div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">Nog geen maaltijden opgeslagen.<br/>Maak er een via "+ Nieuw".</div>`}
@@ -1756,7 +1802,7 @@ async function analyzeMuscles(exercises) {
             })}
           </div>`}
 
-          ${libTab === 'producten' && html`<div>
+                    ${libTab === 'producten' && html`<div>
             ${customProducts.length === 0 && html`<div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">Nog geen eigen producten.<br/>Voeg er een toe via "+ Nieuw".</div>`}
             ${customProducts.map((p, idx) => html`
               <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < customProducts.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
@@ -1770,6 +1816,27 @@ async function analyzeMuscles(exercises) {
                   onMouseOver=${e => { e.currentTarget.style.background='var(--c)'; e.currentTarget.style.color='var(--bg)'; }}
                   onMouseOut=${e => { e.currentTarget.style.background='#7fa4b81a'; e.currentTarget.style.color='var(--c)'; }}>+ Log</button>
                 <button onClick=${() => deleteCustomProduct(p.id)} style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+                  onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
+                  onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
+              </div>`)}
+          </div>`}
+
+                    ${libTab === 'favorieten' && html`<div>
+            ${favorites.length === 0 && html`<div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">Nog geen favorieten.<br/>Voeg producten toe via de zoekresultaten.</div>`}
+            ${favorites.map((f, idx) => html`
+              <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < favorites.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
+                <div style="width:36px;height:36px;border-radius:10px;background:#b89e721a;border:1px solid #b89e7230;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px">⭐</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.naam}</div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${Math.round(f.calorieën)} kcal · E ${Math.round(f.eiwitten)}g · K ${Math.round(f.koolhydraten)}g · V ${Math.round(f.vetten)}g</div>
+                  ${f.brands && html`<div style="font-size:10px;color:var(--dim);margin-top:1px">${f.brands}</div>`}
+                </div>
+                <button onClick=${() => addItems([{ naam: f.naam, hoeveelheid: '100g', calorieën: f.calorieën, eiwitten: f.eiwitten, koolhydraten: f.koolhydraten, vetten: f.vetten }])}
+                  style="flex-shrink:0;background:#b89e721a;color:var(--f);border:1px solid #b89e7240;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
+                  onMouseOver=${e => { e.currentTarget.style.background='var(--f)'; e.currentTarget.style.color='var(--bg)'; }}
+                  onMouseOut=${e => { e.currentTarget.style.background='#b89e721a'; e.currentTarget.style.color='var(--f)'; }}>+ Log</button>
+                <button onClick=${() => setFavorites(prev => { const updated = prev.filter(item => item.key !== f.key); saveFavorites(updated); return updated; })}
+                  style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
                   onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
                   onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
               </div>`)}
