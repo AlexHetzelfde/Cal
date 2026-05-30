@@ -42,8 +42,10 @@
     @keyframes scanline  { 0%,100% { top: 20%; } 50% { top: 75%; } }
     @keyframes slideUp   { from { transform: translateY(100%); } to { transform: translateY(0); } }
     @keyframes backdropIn { from { opacity:0; } to { opacity:1; } }
+    @keyframes heartPop  { 0% { transform: scale(1); } 40% { transform: scale(1.4); } 70% { transform: scale(.9); } 100% { transform: scale(1); } }
     .fade-up   { animation: fadeUp .2s ease; }
     .slide-up  { animation: slideUp .28s cubic-bezier(.32,.72,0,1); }
+    .heart-pop { animation: heartPop .3s ease; }
     .card { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
     .field { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; color: var(--text); padding: 10px 12px; font-size: 13px; transition: border-color .2s; }
     .field:focus { border-color: var(--text); }
@@ -194,7 +196,10 @@ const loadCustomExercises = () => dbGet('ct_custom_exercises', []);
 const saveCustomExercises = (ex) => dbSet('ct_custom_exercises', ex);
 const loadPresets = () => dbGet('ct_presets', []);
 const savePresets = (p) => dbSet('ct_presets', p);
-const saveFavorites = (favs) => { dbSet('ct_favorites', favs); };
+
+// ── Favorieten ────────────────────────────────────────────────────────────────
+const loadFavorites = () => dbGet('ct_favorites', []);
+const saveFavorites = (favs) => dbSet('ct_favorites', favs);
 
 // ── Image resize helper (houdt localStorage klein) ────────────────────────────
 const resizeImage = (dataUrl, maxWidth = 500, maxHeight = 500, quality = 0.75) => {
@@ -239,6 +244,7 @@ function parseServingSize(raw) {
 const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN het volgende JSON‑formaat, zonder uitleg:
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. GEEN andere tekst.`;
+
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 const MODEL_LIMITS = {
@@ -284,27 +290,18 @@ const parseGeminiJson = (data) => {
   const end = clean.lastIndexOf('}');
   if (start !== -1 && end !== -1 && end > start) {
     clean = clean.slice(start, end + 1);
-    try {
-      return JSON.parse(clean);
-    } catch {}
+    try { return JSON.parse(clean); } catch {}
   }
-  // Repareer afgekapte JSON
   if (start !== -1 && (end === -1 || end <= start)) {
     let fixed = clean.slice(start);
-    if (fixed.endsWith('"')) {
-      fixed = fixed.slice(0, -1) + '"}';
-    } else if (fixed.endsWith(',')) {
-      fixed = fixed.slice(0, -1);
-    }
-    if (!fixed.endsWith('}')) {
-      fixed += '}';
-    }
-    try {
-      return JSON.parse(fixed);
-    } catch {}
+    if (fixed.endsWith('"')) fixed = fixed.slice(0, -1) + '"}';
+    else if (fixed.endsWith(',')) fixed = fixed.slice(0, -1);
+    if (!fixed.endsWith('}')) fixed += '}';
+    try { return JSON.parse(fixed); } catch {}
   }
   throw new Error('Geen geldige JSON ontvangen. Ruwe respons: ' + text);
 };
+
 // ── Rate Limit Tracker ─────────────────────────────────────────────────────
 const USAGE_KEY = 'ct_usage';
 const getUsageLog = () => { try { return JSON.parse(localStorage.getItem(USAGE_KEY)) || []; } catch { return []; } };
@@ -504,23 +501,16 @@ const loadExerciseDB = async () => {
   return exerciseDB;
 };
 
-// ── Zoek in zowel de online DB als eigen oefeningen ─────────────────────────
 const searchExercises = async (term, customExercises = []) => {
   const q = term.toLowerCase();
-
-  // Eigen oefeningen altijd zoeken (offline, altijd snel)
   const customMatches = customExercises
     .filter(e => e.name.toLowerCase().includes(q))
     .map(e => ({ ...e, isCustom: true }));
-
-  // Online DB
   let dbResults = [];
   try {
     const db = await loadExerciseDB();
     dbResults = db.filter(e => e.name.toLowerCase().includes(q)).slice(0, 8);
   } catch {}
-
-  // Eigen oefeningen eerst tonen
   return [...customMatches, ...dbResults].slice(0, 12);
 };
 
@@ -598,14 +588,16 @@ function MealLogCard({ meal, onRemove }) {
         </div>`}
     </div>`;
 }
-  
+
 // ── ProductRow (modal) ────────────────────────────────────────────────────────
-function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite, onToggleFavorite }) {
+// isFavorite en onToggleFavorite zijn optioneel — hartje wordt alleen getoond als onToggleFavorite is meegegeven
+function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite = false, onToggleFavorite = null }) {
   const n = product.nutriments;
   const rawServing = product.serving_size || '';
   const servingGrams = parseServingSize(rawServing);
   const [qty, setQty] = useState(() => initialQty || servingGrams || 100);
   const [done, setDone] = useState(false);
+  const [heartAnim, setHeartAnim] = useState(false);
   const f = qty / 100;
   const cal100 = Math.round(getKcal100g(n));
   const cal = Math.round(getKcal100g(n) * f);
@@ -619,8 +611,14 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
     return isJustGrams ? `1 portie · ${servingGrams}g` : `1 portie · ${servingGrams}g (${cleaned})`;
   })();
   const add = () => { onAdd(product, qty); setDone(true); setTimeout(() => setDone(false), 1800); };
-  const favKey = (product.product_name || '') + '|' + (product.brands || '');
-  const favActive = typeof isFavorite === 'function' ? isFavorite(favKey) : !!isFavorite;
+
+  const handleHeart = (e) => {
+    e.stopPropagation();
+    setHeartAnim(true);
+    setTimeout(() => setHeartAnim(false), 300);
+    onToggleFavorite(product);
+  };
+
   return html`
     <div class=${'product-row' + (expanded ? ' expanded' : '')}>
       <div class="product-row-header" onClick=${onToggle}>
@@ -637,12 +635,15 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
           <div class="mono" style="font-size:13px;font-weight:700;color:${expanded?'var(--c)':'var(--text)'}">${cal100}</div>
           <div style="font-size:9px;color:var(--muted)">kcal/100g</div>
         </div>
-        <button onClick=${(e) => { e.stopPropagation(); onToggleFavorite && onToggleFavorite(favKey, product); }}
-          style="background:none;border:none;font-size:18px;cursor:pointer;padding:0 4px;color:${favActive ? '#f5c542' : 'var(--dim)'};flex-shrink:0;line-height:1;"
-          title=${favActive ? 'Verwijder uit favorieten' : 'Voeg toe aan favorieten'}>
-          ${favActive ? '★' : '☆'}
-        </button>
-        <div style="flex-shrink:0;color:var(--muted);font-size:14px;margin-left:4px;transition:transform .2s;transform:rotate(${expanded?'180':'0'}deg)">▾</div>
+        ${onToggleFavorite && html`
+          <button
+            onClick=${handleHeart}
+            class=${heartAnim ? 'heart-pop' : ''}
+            title=${isFavorite ? 'Verwijder uit favorieten' : 'Voeg toe aan favorieten'}
+            style="flex-shrink:0;background:none;border:none;font-size:17px;cursor:pointer;padding:2px 4px;line-height:1;color:${isFavorite?'var(--danger)':'var(--muted)'};transition:color .15s">
+            ${isFavorite ? '♥' : '♡'}
+          </button>`}
+        <div style="flex-shrink:0;color:var(--muted);font-size:14px;margin-left:2px;transition:transform .2s;transform:rotate(${expanded?'180':'0'}deg)">▾</div>
       </div>
       ${expanded && html`
         <div class="product-row-body">
@@ -679,14 +680,10 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
 }
 
 // ── SearchModal ───────────────────────────────────────────────────────────────
-function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, favorites, onToggleFavorite }) {
+function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, favorites = [], onToggleFavorite = null }) {
   const [expandedIdx, setExpandedIdx] = useState(results.length === 1 ? 0 : null);
   const toggle = (idx) => setExpandedIdx(prev => prev === idx ? null : idx);
   const handleBackdrop = (e) => { if (e.target === e.currentTarget) onClose(); };
-  const isFav = (name, brands) => {
-    const key = (name || '') + '|' + (brands || '');
-    return (favorites || []).some(f => f.key === key);
-  };
   return html`
     <div class="modal-backdrop" onClick=${handleBackdrop}>
       <div class="modal-sheet slide-up">
@@ -709,10 +706,16 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, f
           ${results.length === 0 && !offError && html`<div style="text-align:center;color:var(--muted);padding:32px 0;font-size:13px">Geen producten gevonden</div>`}
           ${offError && html`<div style="color:var(--danger);font-size:12px;margin-bottom:12px;padding:9px 11px;background:#b8727215;border:1px solid #b8727230;border-radius:8px;line-height:1.5">${offError}</div>`}
           ${results.map(({ product, qty }, idx) => html`
-            <${ProductRow} key=${product.product_name + idx} product=${product} initialQty=${qty} expanded=${expandedIdx === idx}
-              onToggle=${() => toggle(idx)} onAdd=${onAdd}
-              isFavorite=${isFav(product.product_name, product.brands)}
-              onToggleFavorite=${onToggleFavorite}/>`)}
+            <${ProductRow}
+              key=${product.product_name + idx}
+              product=${product}
+              initialQty=${qty}
+              expanded=${expandedIdx === idx}
+              onToggle=${() => toggle(idx)}
+              onAdd=${onAdd}
+              isFavorite=${favorites.some(f => f.product_name?.toLowerCase() === product.product_name?.toLowerCase())}
+              onToggleFavorite=${onToggleFavorite}
+            />`)}
         </div>
       </div>
     </div>`;
@@ -789,7 +792,6 @@ function AddCustomExerciseModal({ onClose, onSave }) {
     onSave({
       id: Date.now() + Math.random(),
       name: name.trim(),
-      // Sla afbeelding op als data-URL in images array, net zoals de online DB
       images: imageData ? [imageData] : [],
       isCustom: true
     });
@@ -805,7 +807,6 @@ function AddCustomExerciseModal({ onClose, onSave }) {
           <button onClick=${onClose} style="background:var(--s2);border:1px solid var(--border);color:var(--muted);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
         </div>
         <div style="overflow-y:auto;flex:1;padding:0 16px 24px">
-
           <div style="margin-bottom:16px">
             <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Naam van de oefening</div>
             <input value=${name} onInput=${e => setName(e.target.value)}
@@ -813,19 +814,15 @@ function AddCustomExerciseModal({ onClose, onSave }) {
               class="field" placeholder="bijv. Pike Pushup, L-sit, Planche Lean…"
               style="font-size:14px;font-weight:600"/>
           </div>
-
           <div style="margin-bottom:20px">
             <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Foto (optioneel)</div>
             <input type="file" accept="image/*" style="display:none" ref=${fileRef} onChange=${handleFile}/>
-
             ${imageData ? html`
               <div style="position:relative">
                 <img src=${imageData} style="width:100%;max-height:220px;object-fit:cover;border-radius:12px;border:1px solid var(--border);display:block"/>
                 <button onClick=${() => setImageData(null)}
                   style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.75);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center">×</button>
-                <div style="position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,.6);border-radius:6px;padding:3px 8px;font-size:10px;color:#aaa">
-                  Verkleind voor opslag
-                </div>
+                <div style="position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,.6);border-radius:6px;padding:3px 8px;font-size:10px;color:#aaa">Verkleind voor opslag</div>
               </div>
             ` : html`
               <button onClick=${() => fileRef.current.click()} disabled=${loading}
@@ -835,14 +832,11 @@ function AddCustomExerciseModal({ onClose, onSave }) {
                 ${loading ? html`<div class="spinner"/>` : html`<span style="font-size:24px">📷</span>`}
                 <span>${loading ? 'Verwerken…' : 'Foto kiezen of maken'}</span>
               </button>`}
-
             <div style="font-size:10px;color:var(--dim);margin-top:6px;line-height:1.5">
               Foto wordt automatisch verkleind en lokaal opgeslagen.<br/>Werkt ook met een camerafoto van je scherm.
             </div>
           </div>
-
-          <button onClick=${handleSave} disabled=${!name.trim() || loading}
-            class="btn" style="background:var(--p)">
+          <button onClick=${handleSave} disabled=${!name.trim() || loading} class="btn" style="background:var(--p)">
             💾 Oefening opslaan
           </button>
         </div>
@@ -855,14 +849,11 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
   const [naam, setNaam] = useState('');
   const [oefeningen, setOefeningen] = useState([]);
   useEffect(() => {
-  if (editWorkout) {
-    setNaam(editWorkout.naam);
-    setOefeningen(editWorkout.oefeningen.map((oe, idx) => ({
-      ...oe,
-      id: Date.now() + idx + Math.random(), // unieke temp-id’s
-    })));
-  }
-}, [editWorkout]);
+    if (editWorkout) {
+      setNaam(editWorkout.naam);
+      setOefeningen(editWorkout.oefeningen.map((oe, idx) => ({ ...oe, id: Date.now() + idx + Math.random() })));
+    }
+  }, [editWorkout]);
   const [zoekterm, setZoekterm] = useState('');
   const [zoekresultaten, setZoekresultaten] = useState([]);
   const [zoeken, setZoeken] = useState(false);
@@ -882,8 +873,6 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
     setZoekresultaten([]);
     setZoekterm('');
     const rawImage = exercise.images?.[0];
-    // Eigen oefeningen: rawImage is al een data-URL (begint met "data:")
-    // Online DB: rawImage is een bestandsnaam die we samenvoegen met IMG_BASE
     const image = rawImage
       ? (exercise.isCustom || rawImage.startsWith('data:') ? rawImage : IMG_BASE + rawImage)
       : null;
@@ -915,16 +904,16 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
   const verwijderOefening = (id) => setOefeningen(prev => prev.filter(e => e.id !== id));
 
   const handleOpslaan = () => {
-  if (!naam.trim() || oefeningen.length === 0) return;
-  const workoutData = {
-    id: editWorkout ? editWorkout.id : Date.now(),
-    naam: naam.trim(),
-    aangemaakt: editWorkout ? editWorkout.aangemaakt : new Date().toLocaleDateString('nl-NL'),
-    oefeningen: oefeningen.map(({ id, ...rest }) => rest),
+    if (!naam.trim() || oefeningen.length === 0) return;
+    const workoutData = {
+      id: editWorkout ? editWorkout.id : Date.now(),
+      naam: naam.trim(),
+      aangemaakt: editWorkout ? editWorkout.aangemaakt : new Date().toLocaleDateString('nl-NL'),
+      oefeningen: oefeningen.map(({ id, ...rest }) => rest),
+    };
+    onSave(workoutData, editWorkout ? editWorkout.id : null);
+    onClose();
   };
-  onSave(workoutData, editWorkout ? editWorkout.id : null);
-  onClose();
-};
 
   return html`
     <div class="modal-backdrop" onClick=${e => e.target === e.currentTarget && onClose()}>
@@ -938,7 +927,6 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
           <input value=${naam} onInput=${e => setNaam(e.target.value)}
             placeholder="Naam van de workout (bijv. Zaterdag L-sit)"
             class="field" style="margin-bottom:16px;font-weight:600;font-size:14px"/>
-
           <div class="card" style="margin-bottom:12px">
             <div class="section-label">Oefening toevoegen</div>
             <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.5">
@@ -955,7 +943,6 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
                 ${zoeken ? '...' : 'Zoek'}
               </button>
             </div>
-
             ${zoekresultaten.length > 0 && html`
               <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:8px">
                 ${zoekresultaten.map((r, i) => html`
@@ -974,7 +961,6 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
                     <div style="font-size:11px;color:var(--muted)">+</div>
                   </div>`)}
               </div>`}
-
             ${zoekresultaten.length === 0 && zoekterm.trim() && !zoeken && html`
               <button onClick=${voegHandmatigToe}
                 style="width:100%;background:var(--s2);border:1px solid var(--border);color:var(--muted);border-radius:10px;padding:9px;font-size:12px;cursor:pointer;transition:all .15s"
@@ -983,7 +969,6 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
                 + "${zoekterm}" handmatig toevoegen (zonder foto)
               </button>`}
           </div>
-
           ${oefeningen.length > 0 && html`
             <div style="margin-bottom:12px">
               <div class="section-label">Oefeningen (${oefeningen.length})</div>
@@ -1013,7 +998,6 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
                   </div>
                 </div>`)}
             </div>`}
-
           <button onClick=${handleOpslaan} disabled=${!naam.trim() || oefeningen.length === 0} class="btn" style="background:var(--p)">
             💾 Workout opslaan
           </button>
@@ -1021,7 +1005,6 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
       </div>
     </div>`;
 }
-
 
 // ── WorkoutCard ───────────────────────────────────────────────────────────────
 function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analysisError }) {
@@ -1057,32 +1040,32 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analys
                 ${oe.isCustom && html`<div style="font-size:10px;color:var(--p);margin-top:2px">Eigen oefening</div>`}
               </div>
             </div>`)}
-                      ${loadingAnalysis && !workout.spiergroepen && html`
-            <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px; display:flex; align-items:center; gap:8px;">
+          ${loadingAnalysis && !workout.spiergroepen && html`
+            <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;display:flex;align-items:center;gap:8px;">
               <div class="spinner" style="border-top-color:var(--p);"/>
-              <span style="font-size:12px; color:var(--muted);">Spiergroepen analyseren…</span>
+              <span style="font-size:12px;color:var(--muted);">Spiergroepen analyseren…</span>
             </div>`}
-                      ${analysisError && !workout.spiergroepen && html`
-            <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px; color:var(--danger); font-size:12px;">
+          ${analysisError && !workout.spiergroepen && html`
+            <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;color:var(--danger);font-size:12px;">
               ${analysisError}
             </div>`}
           ${workout.spiergroepen && workout.spiergroepen.length > 0 && html`
-            <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px">
+            <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
               <div class="section-label" style="margin-bottom:8px">Focus spiergroepen</div>
               ${workout.spiergroepen.map(sg => {
                 const pct = Math.round(sg.percentage);
                 return html`
-                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px">
-                    <div style="width:80px; font-size:11px; color:var(--muted); text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${sg.naam}</div>
-                    <div style="flex:1; background:var(--s2); border-radius:4px; height:6px; overflow:hidden">
-                      <div style="width:${pct}%; height:100%; background:var(--p); border-radius:4px; transition:width .4s"></div>
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <div style="width:80px;font-size:11px;color:var(--muted);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sg.naam}</div>
+                    <div style="flex:1;background:var(--s2);border-radius:4px;height:6px;overflow:hidden">
+                      <div style="width:${pct}%;height:100%;background:var(--p);border-radius:4px;transition:width .4s"></div>
                     </div>
-                    <div class="mono" style="font-size:10px; color:var(--p); width:30px">${pct}%</div>
+                    <div class="mono" style="font-size:10px;color:var(--p);width:30px">${pct}%</div>
                   </div>`;
               })}
             </div>`}
           <button onClick=${e => { e.stopPropagation(); onLog(workout); }}
-            style="margin-top:12px; width:100%; background:var(--c); color:var(--bg); border:none; border-radius:10px; padding:9px; font-weight:700; font-size:12px; cursor:pointer;">
+            style="margin-top:12px;width:100%;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:9px;font-weight:700;font-size:12px;cursor:pointer;">
             📌 Vandaag gedaan
           </button>
         </div>`}
@@ -1240,26 +1223,24 @@ function NutritionChart() {
   const [history, setHistory] = useState({});
   const [days, setDays] = useState(7);
   useEffect(() => { dbGet('ct_food_history', {}).then(setHistory); }, []);
-
   const dates = Object.keys(history).sort().slice(-days);
   const calorieData = dates.map(d => {
     const items = history[d] || [];
     return items.reduce((sum, i) => sum + (i.calorieën || 0), 0);
   });
   const maxCal = Math.max(...calorieData, 1);
-
   return html`
     <div class="card">
       <div class="section-label">Calorieën per dag</div>
-      <div style="font-size:11px; color:var(--dim); margin-bottom:12px">Laatste ${days} dagen</div>
-      <div style="display:flex; align-items:flex-end; gap:6px; height:120px; padding:0 4px;">
+      <div style="font-size:11px;color:var(--dim);margin-bottom:12px">Laatste ${days} dagen</div>
+      <div style="display:flex;align-items:flex-end;gap:6px;height:120px;padding:0 4px;">
         ${dates.map((d, idx) => {
           const pct = (calorieData[idx] / maxCal) * 100;
           return html`
-            <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;">
-              <div style="font-size:10px; color:var(--muted)">${Math.round(calorieData[idx])}</div>
-              <div style="width:100%; height:${pct}%; background:var(--p); border-radius:4px 4px 0 0; min-height:2px;"></div>
-              <div style="font-size:9px; color:var(--dim)">${d.slice(5)}</div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+              <div style="font-size:10px;color:var(--muted)">${Math.round(calorieData[idx])}</div>
+              <div style="width:100%;height:${pct}%;background:var(--p);border-radius:4px 4px 0 0;min-height:2px;"></div>
+              <div style="font-size:9px;color:var(--dim)">${d.slice(5)}</div>
             </div>`;
         })}
       </div>
@@ -1269,7 +1250,6 @@ function NutritionChart() {
 function GymChart({ workouts }) {
   const [history, setHistory] = useState({});
   useEffect(() => { dbGet('ct_workout_history', {}).then(setHistory); }, []);
-
   const today = new Date();
   const weeks = [];
   for (let w = 0; w < 12; w++) {
@@ -1282,25 +1262,22 @@ function GymChart({ workouts }) {
     }
     weeks.push(week);
   }
-  weeks.reverse(); // nieuwste weken links
-
+  weeks.reverse();
   const maxCount = Math.max(...weeks.flat().map(d => d.count), 1);
-
   return html`
     <div class="card">
       <div class="section-label">Workout activiteit</div>
-      <div style="display:flex; gap:3px; overflow-x:auto; padding-bottom:8px;">
+      <div style="display:flex;gap:3px;overflow-x:auto;padding-bottom:8px;">
         ${weeks.map((week, wi) => html`
-          <div style="display:flex; flex-direction:column; gap:3px;">
+          <div style="display:flex;flex-direction:column;gap:3px;">
             ${week.map(day => {
               const intensity = Math.min(day.count / maxCount, 1);
               const color = intensity === 0 ? 'var(--s2)' : `rgba(133,176,152,${0.2 + intensity * 0.8})`;
-              return html`<div title="${day.key}: ${day.count} sessies" style="width:12px; height:12px; border-radius:2px; background:${color}; border:1px solid var(--border);"></div>`;
+              return html`<div title="${day.key}: ${day.count} sessies" style="width:12px;height:12px;border-radius:2px;background:${color};border:1px solid var(--border);"></div>`;
             })}
-          </div>`
-        )}
+          </div>`)}
       </div>
-      <div style="font-size:10px; color:var(--dim); margin-top:8px;">Hoe groener, hoe meer sessies</div>
+      <div style="font-size:10px;color:var(--dim);margin-top:8px;">Hoe groener, hoe meer sessies</div>
     </div>`;
 }
 
@@ -1332,24 +1309,45 @@ function App() {
   const [maxResults, setMaxResults] = useState(() => jget('ct_maxResults', 100));
   const [presets, setPresets] = useState([]);
   const [customProducts, setCustomProducts] = useState([]);
-  const [favorites, setFavorites] = useState([]);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showMealBuilder, setShowMealBuilder] = useState(false);
   const [workouts, setWorkouts] = useState([]);
   const workoutsRef = useRef(workouts);
   const [customExercises, setCustomExercises] = useState([]);
 
-useEffect(() => { loadWorkouts().then(setWorkouts); }, []);
-useEffect(() => { workoutsRef.current = workouts; }, [workouts]);
-useEffect(() => { loadCustomExercises().then(setCustomExercises); }, []);
-useEffect(() => { dbGet('ct_favorites', []).then(setFavorites); }, []);
-useEffect(() => { loadPresets().then(setPresets); }, []);
-useEffect(() => {
-  (async () => {
-    const prods = await dbGet('ct_custom_products', []);
-    setCustomProducts(prods);
-  })();
-}, []);
+  // ── Favorieten state ───────────────────────────────────────────────────────
+  const [favorites, setFavorites] = useState([]);
+  useEffect(() => { loadFavorites().then(setFavorites); }, []);
+
+  const toggleFavorite = (product) => {
+    setFavorites(prev => {
+      const key = product.product_name?.toLowerCase();
+      const exists = prev.some(f => f.product_name?.toLowerCase() === key);
+      const updated = exists
+        ? prev.filter(f => f.product_name?.toLowerCase() !== key)
+        : [...prev, {
+            id: Date.now() + Math.random(),
+            product_name: product.product_name,
+            brands: product.brands || '',
+            nutriments: product.nutriments,
+            serving_size: product.serving_size || null
+          }];
+      saveFavorites(updated);
+      return updated;
+    });
+  };
+
+  useEffect(() => { loadWorkouts().then(setWorkouts); }, []);
+  useEffect(() => { workoutsRef.current = workouts; }, [workouts]);
+  useEffect(() => { loadCustomExercises().then(setCustomExercises); }, []);
+  useEffect(() => { loadPresets().then(setPresets); }, []);
+  useEffect(() => {
+    (async () => {
+      const prods = await dbGet('ct_custom_products', []);
+      setCustomProducts(prods);
+    })();
+  }, []);
+
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState(null);
   const [showAddExercise, setShowAddExercise] = useState(false);
@@ -1376,7 +1374,7 @@ useEffect(() => {
     e.target.value = '';
   };
 
-    const totals = log.reduce((a, entry) => {
+  const totals = log.reduce((a, entry) => {
     if (entry.isMeal) {
       const mealTotals = entry.items.reduce((m, i) => ({
         calorieën: m.calorieën + (i.calorieën || 0),
@@ -1399,20 +1397,22 @@ useEffect(() => {
       };
     }
   }, { calorieën: 0, eiwitten: 0, koolhydraten: 0, vetten: 0 });
+
   const createMealEntry = (name, items) => ({
-  isMeal: true,
-  naam: name,
-  items: items.map(i => ({ ...i, id: Date.now() + Math.random() })),
-  id: Date.now() + Math.random(),
-});
+    isMeal: true,
+    naam: name,
+    items: items.map(i => ({ ...i, id: Date.now() + Math.random() })),
+    id: Date.now() + Math.random(),
+  });
+
   const addItems = (items, mealName) => {
-  if (mealName) {
-    const meal = createMealEntry(mealName, items);
-    setLog(p => [...p, meal]);
-  } else {
-    setLog(p => [...p, ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
-  }
-};
+    if (mealName) {
+      const meal = createMealEntry(mealName, items);
+      setLog(p => [...p, meal]);
+    } else {
+      setLog(p => [...p, ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
+    }
+  };
 
   const addOFF = (product, qty) => {
     const n = product.nutriments, f = qty / 100;
@@ -1451,80 +1451,49 @@ useEffect(() => {
   };
   const handleSaveMeal = (preset) => { const updated = [...presets, preset]; setPresets(updated); savePresets(updated); };
   const handleSaveWorkout = async (workoutData, editId) => {
-  let updated;
-  if (editId) {
-    updated = workouts.map(w => w.id === editId ? { ...w, ...workoutData, id: editId } : w);
-  } else {
-    updated = [...workouts, workoutData];
-  }
-  setWorkouts(updated);
-  await saveWorkouts(updated);
-  setEditingWorkout(null);
-  setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: true }));
-
-  // Gebruik setTimeout om te wachten tot React de state heeft bijgewerkt
-  setTimeout(() => {
-    analyzeWorkoutMuscles(workoutData);
-  }, 0);
-};
+    let updated;
+    if (editId) {
+      updated = workouts.map(w => w.id === editId ? { ...w, ...workoutData, id: editId } : w);
+    } else {
+      updated = [...workouts, workoutData];
+    }
+    setWorkouts(updated);
+    await saveWorkouts(updated);
+    setEditingWorkout(null);
+    setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: true }));
+    setTimeout(() => { analyzeWorkoutMuscles(workoutData); }, 0);
+  };
   const handleDeleteWorkout = (id) => { const updated = workouts.filter(w => w.id !== id); setWorkouts(updated); saveWorkouts(updated); };
   const handleLogWorkout = async (workout) => {
-  const today = TODAY();
-  const history = await dbGet('ct_workout_history', {});
-  const dayEntries = history[today] || [];
-  dayEntries.push({
-    workoutId: workout.id,
-    naam: workout.naam,
-    timestamp: Date.now(),
-  });
-  history[today] = dayEntries;
-  await dbSet('ct_workout_history', history);
-};
+    const today = TODAY();
+    const history = await dbGet('ct_workout_history', {});
+    const dayEntries = history[today] || [];
+    dayEntries.push({ workoutId: workout.id, naam: workout.naam, timestamp: Date.now() });
+    history[today] = dayEntries;
+    await dbSet('ct_workout_history', history);
+  };
   const addCustomProduct = (product) => setCustomProducts(prev => [...prev, { ...product, id: Date.now() + Math.random() }]);
-  const handleToggleFavorite = (favKey, product) => {
-  setFavorites(prev => {
-    const exists = prev.find(f => f.key === favKey);
-    let updated;
-    if (exists) {
-      updated = prev.filter(f => f.key !== favKey);
-    } else {
-      const n = product.nutriments;
-      const favItem = {
-        key: favKey,
-        naam: product.product_name,
-        brands: product.brands,
-        calorieën: getKcal100g(n),
-        eiwitten: n['proteins_100g'] || 0,
-        koolhydraten: n['carbohydrates_100g'] || 0,
-        vetten: n['fat_100g'] || 0,
-        serving_size: product.serving_size || '',
-      };
-      updated = [...prev, favItem];
-    }
-    saveFavorites(updated);
-    return updated;
-  });
-};
   const deleteCustomProduct = (id) => setCustomProducts(prev => prev.filter(p => p.id !== id));
+
   const analyzeWorkoutMuscles = async (workoutData) => {
-  if (!workoutData.oefeningen || workoutData.oefeningen.length === 0) {
-    setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: false }));
-    return;
-  }
-  try {
-    const spiergroepen = await analyzeMuscles(workoutData.oefeningen);
-    if (spiergroepen) {
-      const currentWorkouts = workoutsRef.current; // gebruik de ref
-      const updated = currentWorkouts.map(w => w.id === workoutData.id ? { ...w, spiergroepen } : w);
-      setWorkouts(updated);
-      await saveWorkouts(updated);
+    if (!workoutData.oefeningen || workoutData.oefeningen.length === 0) {
+      setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: false }));
+      return;
     }
-  } catch (e) {
-    setAnalysisErrors(prev => ({ ...prev, [workoutData.id]: e.message || 'Onbekende fout' }));
-  } finally {
-    setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: false }));
-  }
-};
+    try {
+      const spiergroepen = await analyzeMuscles(workoutData.oefeningen);
+      if (spiergroepen) {
+        const currentWorkouts = workoutsRef.current;
+        const updated = currentWorkouts.map(w => w.id === workoutData.id ? { ...w, spiergroepen } : w);
+        setWorkouts(updated);
+        await saveWorkouts(updated);
+      }
+    } catch (e) {
+      setAnalysisErrors(prev => ({ ...prev, [workoutData.id]: e.message || 'Onbekende fout' }));
+    } finally {
+      setAnalysisLoading(prev => ({ ...prev, [workoutData.id]: false }));
+    }
+  };
 
   // ── OFF zoeken ─────────────────────────────────────────────────────────────
   const handleOFFSearch = async () => {
@@ -1612,32 +1581,23 @@ useEffect(() => {
   const MUSCLE_ANALYSIS_SYSTEM = `Je bent een sportwetenschapper. Geef ALLEEN dit exacte JSON-formaat terug:
 {"spiergroepen":[{"naam":"Borst","percentage":40},{"naam":"Triceps","percentage":25},{"naam":"Schouders","percentage":20},{"naam":"Rug","percentage":10},{"naam":"Benen","percentage":5}]}
 Geen uitleg.`;
-async function analyzeMuscles(exercises) {
-  if (!getKey()) return null;
-  const names = exercises.map(e => e.naam).join(', ');
 
-  let data;
-  try {
-    data = await callGemini(MUSCLE_ANALYSIS_SYSTEM, names, 2048);
-  } catch (e) {
-    console.warn('API call mislukt:', e);
-    throw e;
-  }
-
-  // Haal ruwe antwoordtekst op
-  const raw = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-
-  try {
-    const parsed = parseGeminiJson(data);
-    if (!parsed || !parsed.spiergroepen) {
-      throw new Error('Ongeldige JSON-structuur. Ruwe respons: ' + raw);
+  async function analyzeMuscles(exercises) {
+    if (!getKey()) return null;
+    const names = exercises.map(e => e.naam).join(', ');
+    let data;
+    try { data = await callGemini(MUSCLE_ANALYSIS_SYSTEM, names, 2048); }
+    catch (e) { console.warn('API call mislukt:', e); throw e; }
+    const raw = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+    try {
+      const parsed = parseGeminiJson(data);
+      if (!parsed || !parsed.spiergroepen) throw new Error('Ongeldige JSON-structuur. Ruwe respons: ' + raw);
+      return parsed.spiergroepen;
+    } catch (e) {
+      console.warn('Spieranalyse mislukt:', e);
+      throw new Error('Spieranalyse mislukt: ' + (e.message || 'onbekend') + '\nRuwe respons: ' + raw);
     }
-    return parsed.spiergroepen;
-  } catch (e) {
-    console.warn('Spieranalyse mislukt:', e);
-    throw new Error('Spieranalyse mislukt: ' + (e.message || 'onbekend') + '\nRuwe respons: ' + raw);
   }
-}
 
   // ── Barcode ────────────────────────────────────────────────────────────────
   const handleBarcode = async (code) => {
@@ -1665,7 +1625,16 @@ async function analyzeMuscles(exercises) {
     ${showAddProduct && html`<${AddProductModal} onClose=${() => setShowAddProduct(false)} onSave=${addCustomProduct}/>`}
     ${showAddExercise && html`<${AddCustomExerciseModal} onClose=${() => setShowAddExercise(false)} onSave=${handleSaveCustomExercise}/>`}
 
-    ${showModal && html`<${SearchModal} results=${offResults} query=${modalLabel || offQuery} offError=${offError} onClose=${closeModal} onAdd=${addOFF} onAIEstimate=${handleAIFromModal} favorites=${favorites} onToggleFavorite=${handleToggleFavorite}/>`}
+    ${showModal && html`<${SearchModal}
+      results=${offResults}
+      query=${modalLabel || offQuery}
+      offError=${offError}
+      onClose=${closeModal}
+      onAdd=${addOFF}
+      onAIEstimate=${handleAIFromModal}
+      favorites=${favorites}
+      onToggleFavorite=${toggleFavorite}
+    />`}
 
     <!-- Header -->
     <div style="background:var(--s1);border-bottom:1px solid var(--border);padding:16px;position:sticky;top:0;z-index:20">
@@ -1762,23 +1731,23 @@ async function analyzeMuscles(exercises) {
         <!-- Bibliotheek -->
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-  <div style="display:flex;gap:6px">
-    <button onClick=${() => setLibTab('maaltijden')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='maaltijden'?'var(--p)':'var(--border)'};background:${libTab==='maaltijden'?'var(--p)':'transparent'};color:${libTab==='maaltijden'?'var(--bg)':'var(--muted)'}">
-      Maaltijden${presets.length > 0 ? ` (${presets.length})` : ''}
-    </button>
-    <button onClick=${() => setLibTab('producten')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='producten'?'var(--c)':'var(--border)'};background:${libTab==='producten'?'var(--c)':'transparent'};color:${libTab==='producten'?'var(--bg)':'var(--muted)'}">
-      Producten${customProducts.length > 0 ? ` (${customProducts.length})` : ''}
-    </button>
-    <button onClick=${() => setLibTab('favorieten')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='favorieten'?'var(--f)':'var(--border)'};background:${libTab==='favorieten'?'var(--f)':'transparent'};color:${libTab==='favorieten'?'var(--bg)':'var(--muted)'}">
-      Favorieten${favorites.length > 0 ? ` (${favorites.length})` : ''}
-    </button>
-  </div>
-           ${libTab === 'maaltijden'
-  ? html`<button onClick=${() => setShowMealBuilder(true)} style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer">+ Nieuw</button>`
-  : libTab === 'producten'
-  ? html`<button onClick=${() => setShowAddProduct(true)} style="background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer">+ Nieuw</button>`
-  : null}
-    </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button onClick=${() => setLibTab('maaltijden')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='maaltijden'?'var(--p)':'var(--border)'};background:${libTab==='maaltijden'?'var(--p)':'transparent'};color:${libTab==='maaltijden'?'var(--bg)':'var(--muted)'}">
+                Maaltijden${presets.length > 0 ? ` (${presets.length})` : ''}
+              </button>
+              <button onClick=${() => setLibTab('producten')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='producten'?'var(--c)':'var(--border)'};background:${libTab==='producten'?'var(--c)':'transparent'};color:${libTab==='producten'?'var(--bg)':'var(--muted)'}">
+                Producten${customProducts.length > 0 ? ` (${customProducts.length})` : ''}
+              </button>
+              <button onClick=${() => setLibTab('favorieten')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid ${libTab==='favorieten'?'var(--danger)':'var(--border)'};background:${libTab==='favorieten'?'var(--danger)':'transparent'};color:${libTab==='favorieten'?'var(--bg)':'var(--muted)'}">
+                ♥${favorites.length > 0 ? ` ${favorites.length}` : ''}
+              </button>
+            </div>
+            ${libTab === 'maaltijden'
+              ? html`<button onClick=${() => setShowMealBuilder(true)} style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">+ Nieuw</button>`
+              : libTab === 'producten'
+              ? html`<button onClick=${() => setShowAddProduct(true)} style="background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">+ Nieuw</button>`
+              : null}
+          </div>
 
           ${libTab === 'maaltijden' && html`<div>
             ${presets.length === 0 && html`<div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">Nog geen maaltijden opgeslagen.<br/>Maak er een via "+ Nieuw".</div>`}
@@ -1802,7 +1771,7 @@ async function analyzeMuscles(exercises) {
             })}
           </div>`}
 
-                    ${libTab === 'producten' && html`<div>
+          ${libTab === 'producten' && html`<div>
             ${customProducts.length === 0 && html`<div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">Nog geen eigen producten.<br/>Voeg er een toe via "+ Nieuw".</div>`}
             ${customProducts.map((p, idx) => html`
               <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < customProducts.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
@@ -1821,25 +1790,46 @@ async function analyzeMuscles(exercises) {
               </div>`)}
           </div>`}
 
-                    ${libTab === 'favorieten' && html`<div>
-            ${favorites.length === 0 && html`<div style="text-align:center;padding:18px 0;color:var(--dim);font-size:12px;line-height:1.6">Nog geen favorieten.<br/>Voeg producten toe via de zoekresultaten.</div>`}
-            ${favorites.map((f, idx) => html`
-              <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < favorites.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
-                <div style="width:36px;height:36px;border-radius:10px;background:#b89e721a;border:1px solid #b89e7230;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px">⭐</div>
-                <div style="flex:1;min-width:0">
-                  <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.naam}</div>
-                  <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${Math.round(f.calorieën)} kcal · E ${Math.round(f.eiwitten)}g · K ${Math.round(f.koolhydraten)}g · V ${Math.round(f.vetten)}g</div>
-                  ${f.brands && html`<div style="font-size:10px;color:var(--dim);margin-top:1px">${f.brands}</div>`}
-                </div>
-                <button onClick=${() => addItems([{ naam: f.naam, hoeveelheid: '100g', calorieën: f.calorieën, eiwitten: f.eiwitten, koolhydraten: f.koolhydraten, vetten: f.vetten }])}
-                  style="flex-shrink:0;background:#b89e721a;color:var(--f);border:1px solid #b89e7240;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
-                  onMouseOver=${e => { e.currentTarget.style.background='var(--f)'; e.currentTarget.style.color='var(--bg)'; }}
-                  onMouseOut=${e => { e.currentTarget.style.background='#b89e721a'; e.currentTarget.style.color='var(--f)'; }}>+ Log</button>
-                <button onClick=${() => setFavorites(prev => { const updated = prev.filter(item => item.key !== f.key); saveFavorites(updated); return updated; })}
-                  style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
-                  onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
-                  onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
-              </div>`)}
+          ${libTab === 'favorieten' && html`<div>
+            ${favorites.length === 0 && html`
+              <div style="text-align:center;padding:24px 0;color:var(--dim);font-size:12px;line-height:1.8">
+                <div style="font-size:28px;margin-bottom:8px;opacity:.4">♡</div>
+                Nog geen favorieten opgeslagen.<br/>
+                Tik op ♡ bij een zoekresultaat om het hier op te slaan.
+              </div>`}
+            ${favorites.map((fav, idx) => {
+              const n = fav.nutriments;
+              const kcal100 = Math.round(getKcal100g(n));
+              const p100 = Math.round(n['proteins_100g'] || 0);
+              const k100 = Math.round(n['carbohydrates_100g'] || 0);
+              const v100 = Math.round(n['fat_100g'] || 0);
+              return html`
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < favorites.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
+                  <div style="width:36px;height:36px;border-radius:10px;background:#b872721a;border:1px solid #b8727230;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px;color:var(--danger)">♥</div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fav.product_name}</div>
+                    <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">
+                      ${kcal100} kcal · E ${p100}g · K ${k100}g · V ${v100}g
+                    </div>
+                    ${fav.brands && html`<div style="font-size:10px;color:var(--dim);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fav.brands}</div>`}
+                  </div>
+                  <button
+                    onClick=${() => {
+                      setOffResults([{ product: fav, qty: null }]);
+                      setModalLabel(fav.product_name);
+                      setShowModal(true);
+                    }}
+                    style="flex-shrink:0;background:#b872721a;color:var(--danger);border:1px solid #b8727230;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
+                    onMouseOver=${e => { e.currentTarget.style.background='var(--danger)'; e.currentTarget.style.color='var(--bg)'; }}
+                    onMouseOut=${e => { e.currentTarget.style.background='#b872721a'; e.currentTarget.style.color='var(--danger)'; }}>
+                    + Log
+                  </button>
+                  <button onClick=${() => toggleFavorite(fav)}
+                    style="flex-shrink:0;background:none;border:none;color:var(--danger);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+                    onMouseOver=${e => e.currentTarget.style.color='var(--muted)'}
+                    onMouseOut=${e => e.currentTarget.style.color='var(--danger)'}>♥</button>
+                </div>`;
+            })}
           </div>`}
         </div>
 
@@ -1852,7 +1842,7 @@ async function analyzeMuscles(exercises) {
               <div style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">Vandaag · ${log.length} item${log.length!==1?'s':''}</div>
               <div class="mono" style="font-size:11px;color:var(--muted)">${Math.round(totals.calorieën)} kcal</div>
             </div>
-                        ${[...log].reverse().map(entry => entry.isMeal
+            ${[...log].reverse().map(entry => entry.isMeal
               ? html`<${MealLogCard} key=${entry.id} meal=${entry} onRemove=${(id) => setLog(p => p.filter(e => e.id !== id))} />`
               : html`<${LogCard} key=${entry.id} item=${entry} onRemove=${() => setLog(p => p.filter(e => e.id !== entry.id))} />`)}
           </div>`}
@@ -1860,7 +1850,6 @@ async function analyzeMuscles(exercises) {
       </div>`}
 
       ${tab==='workout' && html`<div>
-        <!-- Mijn workouts -->
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div style="font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">Mijn workouts</div>
           <button onClick=${() => { setEditingWorkout(null); setShowWorkoutBuilder(true); }}
@@ -1872,7 +1861,6 @@ async function analyzeMuscles(exercises) {
         </div>
         ${workouts.length === 0 && html`<div style="text-align:center;color:var(--border);padding:32px 20px;font-size:13px"><div style="font-size:30px;margin-bottom:10px">🏋️</div>Nog geen workouts opgeslagen</div>`}
         ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout} onEdit=${(workout) => { setEditingWorkout(workout); setShowWorkoutBuilder(true); }} onLog=${handleLogWorkout} loadingAnalysis=${analysisLoading[w.id]} analysisError=${analysisErrors[w.id]} />`)}
-                <!-- Eigen oefeningen bibliotheek -->
         <div class="card" style="margin-top:8px;border-top:2px solid #85b09835">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <div>
@@ -1886,13 +1874,11 @@ async function analyzeMuscles(exercises) {
               + Nieuw
             </button>
           </div>
-
           ${customExercises.length === 0 && html`
             <div style="text-align:center;padding:20px 0;color:var(--dim);font-size:12px;line-height:1.7">
               Nog geen eigen oefeningen.<br/>
               Voeg ze toe en gebruik ze in je workouts.
             </div>`}
-
           ${customExercises.map((ex, i) => html`
             <div style="display:flex;align-items:center;gap:12px;padding:10px 0;${i < customExercises.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
               ${ex.images?.[0]
@@ -1985,16 +1971,16 @@ async function analyzeMuscles(exercises) {
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:10px">Opslag info</div>
           <div style="font-size:11px;color:var(--dim);line-height:1.6">
             Eigen oefeningen (met foto's) worden lokaal opgeslagen in je browser. Foto's worden automatisch verkleind tot max 500px voor efficiënte opslag.<br/><br/>
-            <span style="color:var(--muted)">${customExercises.length} eigen oefening${customExercises.length !== 1 ? 'en' : ''} opgeslagen.</span>
+            <span style="color:var(--muted)">${customExercises.length} eigen oefening${customExercises.length !== 1 ? 'en' : ''} opgeslagen · ${favorites.length} favoriet${favorites.length !== 1 ? 'en' : ''}</span>
           </div>
         </div>
       </div>`}
 
       ${tab==='progress' && html`
         <div>
-          <div style="display:flex; gap:6px; margin-bottom:16px">
-            <button onClick=${() => setProgressView('voeding')} style="padding:5px 12px; border-radius:20px; font-size:11px; font-weight:600; cursor:pointer; border:1px solid ${progressView==='voeding'?'var(--p)':'var(--border)'}; background:${progressView==='voeding'?'var(--p)':'transparent'}; color:${progressView==='voeding'?'var(--bg)':'var(--muted)'}">Voeding</button>
-            <button onClick=${() => setProgressView('gym')} style="padding:5px 12px; border-radius:20px; font-size:11px; font-weight:600; cursor:pointer; border:1px solid ${progressView==='gym'?'var(--c)':'var(--border)'}; background:${progressView==='gym'?'var(--c)':'transparent'}; color:${progressView==='gym'?'var(--bg)':'var(--muted)'}">Gym</button>
+          <div style="display:flex;gap:6px;margin-bottom:16px">
+            <button onClick=${() => setProgressView('voeding')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='voeding'?'var(--p)':'var(--border)'};background:${progressView==='voeding'?'var(--p)':'transparent'};color:${progressView==='voeding'?'var(--bg)':'var(--muted)'}">Voeding</button>
+            <button onClick=${() => setProgressView('gym')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='gym'?'var(--c)':'var(--border)'};background:${progressView==='gym'?'var(--c)':'transparent'};color:${progressView==='gym'?'var(--bg)':'var(--muted)'}">Gym</button>
           </div>
           ${progressView==='voeding' && html`<${NutritionChart}/>`}
           ${progressView==='gym' && html`<${GymChart} workouts=${workouts}/>`}
@@ -2004,6 +1990,6 @@ async function analyzeMuscles(exercises) {
 }
 
 render(html`<${App}/>`, document.getElementById('app'));
-  </script>
+</script>
 </body>
 </html>
