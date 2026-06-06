@@ -1384,6 +1384,7 @@ function App() {
   const [offResults, setOffResults] = useState([]);
   const [offLoading, setOffLoading] = useState(false);
   const [offPhaseMsg, setOffPhaseMsg] = useState('');
+  const [offProgress, setOffProgress] = useState(0);
   const [offError, setOffError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [modalLabel, setModalLabel] = useState('');
@@ -1627,7 +1628,7 @@ function App() {
         const term = termen[i];
         progressMessages.push(`Bezig met "${term}"...`);
         setOffPhaseMsg(progressMessages.join(' · '));
-        try {f
+        try {
           const customMatches = customProducts.filter(p => p.naam.toLowerCase().includes(cleans[i].toLowerCase()));
           if (customMatches.length) gevonden.push(...customMatches.map(p => ({ product: { product_name: p.naam, brands: 'Eigen product', nutriments: { 'energy-kcal_100g': p.calorieën, proteins_100g: p.eiwitten, carbohydrates_100g: p.koolhydraten, fat_100g: p.vetten }, serving_size: null }, qty })));
             const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1), ({ percent, message }) => {
