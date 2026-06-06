@@ -1598,6 +1598,7 @@ function App() {
       const { signal } = controller;
       setOffLoading(true); setOffPhaseMsg('Barcode opzoeken…'); setOffError(''); setOffResults([]); setShowModal(false); setModalLabel(q);
       try {
+        console.log('[handleOFFSearch] try-blok gestart, gevonden/mislukt arrays leeg');
         const product = await offBarcode(q, signal);
         if (product) { setOffResults([{ product, qty: null }]); setShowModal(true); }
         else { setOffError(`Barcode ${q} niet gevonden in de database.`); setShowModal(true); }
@@ -1631,6 +1632,7 @@ function App() {
         try {
           const customMatches = customProducts.filter(p => p.naam.toLowerCase().includes(cleans[i].toLowerCase()));
           if (customMatches.length) gevonden.push(...customMatches.map(p => ({ product: { product_name: p.naam, brands: 'Eigen product', nutriments: { 'energy-kcal_100g': p.calorieën, proteins_100g: p.eiwitten, carbohydrates_100g: p.koolhydraten, fat_100g: p.vetten }, serving_size: null }, qty })));
+          console.log('[handleOFFSearch] roep searchALicious aan met:', cleans[i]);
             const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1), ({ percent, message }) => {
             setOffProgress(percent);
             setOffPhaseMsg(message);
