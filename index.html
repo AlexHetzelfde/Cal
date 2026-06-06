@@ -402,6 +402,13 @@ const NL_EN = {
   chocolade:'chocolate', noten:'nuts', spek:'bacon', worst:'sausage'
 };
 
+const BRAND_ALIASES = {
+  'ah': 'albert heijn',
+  'deka': 'dekamarkt',
+  'dirk': 'dirk van den broek',
+  'plus': 'plus supermarkt'
+};
+
 function scoreProduct(product, query) {
   if (!product.nutriments) return -1;
   const n = product.nutriments;
@@ -410,7 +417,15 @@ function scoreProduct(product, query) {
   const naam = (product.product_name || '').toLowerCase();
   const merk = Array.isArray(product.brands) ? product.brands.join(', ').toLowerCase() : (product.brands || '').toLowerCase();
   const combined = naam + ' ' + merk;
-  const woorden = query.toLowerCase().split(' ').filter(w => w.length >= 2);
+  const queryWords = query.toLowerCase().split(' ').filter(w => w.length >= 2);
+const expandedWords = [];
+for (const w of queryWords) {
+  expandedWords.push(w);
+  if (BRAND_ALIASES[w]) {
+    expandedWords.push(...BRAND_ALIASES[w].split(' '));
+  }
+}
+const woorden = [...new Set(expandedWords)];
   const treffers = woorden.filter(w => combined.includes(w));
   const minMatches = woorden.length >= 3 ? 2 : 1;
   if (treffers.length < minMatches) return -1;
@@ -435,20 +450,89 @@ const fetchV1Search = async (term, signal, size = 50) => {
 
 const searchALicious = async (q, signal, size = 100, onRequest) => {
   if (!q || q.length < 2) return [];
+  // 1) Cache lezen aan het begin (was voorheen niet aanwezig)
+  const cached = await getCachedResults(q);
+  if (cached) return cached;
+
   const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
   if (words.length === 0) return [];
+
+  // 2) Alle zoektermen verzamelen: volledige query, losse woorden, uitgebreide query (aliases), vertaalde termen
+  const termsToSearch = new Set();
+  termsToSearch.add(q);
+  for (const word of words) {
+    termsToSearch.add(word);
+  }
+
+  // Uitgebreide query met BRAND_ALIASES
+  const expandedWords = words.map(w => BRAND_ALIASES[w] ? BRAND_ALIASES[w] : w);
+  const expandedQuery = expandedWords.join(' ');
+  if (expandedQuery !== q) {
+    termsToSearch.add(expandedQuery);
+  }
+
+  // Vertaalde termen via NL_EN (zoals eerder al gebeurde, nu gewoon extra term)
+  const translatedWords = words.map(w => NL_EN[w] || w).join(' ');
+  if (translatedWords !== q) {
+    termsToSearch.add(translatedWords);
+  }
+
+  termsToSearch.delete(''); // veiligheid
+
+  // 3) Alles parallel met Promise.all (geen conditionele vertraging meer)
+  const fetchPromises = [];
+  const termList = Array.from(termsToSearch);
+  for (const term of termList) {
+    if (signal?.aborted) break;
+    // Voor elke term zowel de Cloudflare worker als de V1-search parallel
+    fetchPromises.push(
+      (async () => {
+        const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,brands,nutriments,serving_size&page_size=${size}&sort_by=unique_scans_n`;
+        try {
+          const res = await timedFetch(url, signal, 6000);
+          if (!res.ok) return [];
+          const data = await res.json();
+          if (data.hits) { incrementCFUsage(); onRequest?.(); }
+          return data.hits || [];
+        } catch { return []; }
+      })(),
+      fetchV1Search(term, signal, size)
+    );
+  }
+
+  const results = await Promise.all(fetchPromises);
+  // resultaten samenvoegen (elke promise gaf een array terug; flattenen)
   let allProducts = [];
-  const fetchSearch = async (term) => {
-    if (signal?.aborted) return [];
-    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,brands,nutriments,serving_size&page_size=${size}&sort_by=unique_scans_n`;
-    try {
-      const res = await timedFetch(url, signal, 6000);
-      if (!res.ok) return [];
-      const data = await res.json();
-      if (data.hits) { incrementCFUsage(); onRequest?.(); }
-      return data.hits || [];
-    } catch { return []; }
-  };
+  for (const resultSet of results) {
+    if (Array.isArray(resultSet)) {
+      for (const products of resultSet) {
+        if (Array.isArray(products)) {
+          allProducts.push(...products);
+        }
+      }
+    }
+  }
+
+  // 4) Dedupliceren op productnaam
+  const seen = new Set();
+  allProducts = allProducts.filter(p => {
+    const key = p.product_name?.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // 5) Scoren en sorteren met de aangepaste scoreProduct (die nu BRAND_ALIASES kent)
+  const gesorteerd = allProducts
+    .map(p => ({ p, score: scoreProduct(p, q) }))
+    .filter(x => x.score >= 0)
+    .sort((a, b) => b.score - a.score)
+    .map(x => x.p);
+
+  if (gesorteerd.length > 0) setCachedResults(q, gesorteerd);
+  return gesorteerd;
+};
+  
   const heeftMacros = (p) => { const n = p.nutriments; return n && getKcal100g(n) > 0 && n['proteins_100g'] != null && n['carbohydrates_100g'] != null && n['fat_100g'] != null; };
   const [hitsSA, hitsV1] = await Promise.all([fetchSearch(q), fetchV1Search(q, signal, size)]);
   if (hitsSA.length) allProducts = [...allProducts, ...hitsSA];
