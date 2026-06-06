@@ -533,30 +533,6 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
   return gesorteerd;
 };
   
-  const heeftMacros = (p) => { const n = p.nutriments; return n && getKcal100g(n) > 0 && n['proteins_100g'] != null && n['carbohydrates_100g'] != null && n['fat_100g'] != null; };
-  const [hitsSA, hitsV1] = await Promise.all([fetchSearch(q), fetchV1Search(q, signal, size)]);
-  if (hitsSA.length) allProducts = [...allProducts, ...hitsSA];
-  if (hitsV1.length) allProducts = [...allProducts, ...hitsV1];
-  if (allProducts.filter(heeftMacros).length < 3 && !signal?.aborted) {
-    for (const w of words) {
-      const [sa, v1] = await Promise.all([fetchSearch(w), fetchV1Search(w, signal, size)]);
-      if (sa.length) allProducts = [...allProducts, ...sa];
-      if (v1.length) allProducts = [...allProducts, ...v1];
-    }
-  }
-  const translatedWords = words.map(w => NL_EN[w] || w).join(' ');
-  if (translatedWords !== q && allProducts.filter(heeftMacros).length < 3 && !signal?.aborted) {
-    const [sa, v1] = await Promise.all([fetchSearch(translatedWords), fetchV1Search(translatedWords, signal, size)]);
-    if (sa.length) allProducts = [...allProducts, ...sa];
-    if (v1.length) allProducts = [...allProducts, ...v1];
-  }
-  const seen = new Set();
-  allProducts = allProducts.filter(p => { const key = p.product_name?.toLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; });
-  const gesorteerd = allProducts.map(p => ({ p, score: scoreProduct(p, q) })).filter(x => x.score >= 0).sort((a, b) => b.score - a.score).map(x => x.p);
-  if (gesorteerd.length > 0) setCachedResults(q, gesorteerd);
-  return gesorteerd;
-};
-
 const offBarcode = async (barcode, signal) => {
   const hasNutriments = (product) => product && product.nutriments;
   const isValid = (data) => (data.status === 1 || data.status === 'success' || data.status_verbose === 'product found') && hasNutriments(data.product);
