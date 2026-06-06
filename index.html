@@ -448,12 +448,14 @@ const fetchV1Search = async (term, signal, size = 50) => {
   } catch { return []; }
 };
 
-const searchALicious = async (q, signal, size = 100, onRequest) => {
+const searchALicious = async (q, signal, size = 100, onRequest, onProgress) => {
   if (!q || q.length < 2) return [];
   // 1) Cache lezen aan het begin (was voorheen niet aanwezig)
   const cached = await getCachedResults(q);
   if (cached) return cached;
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   console.log('[searchALicious] query:', q, '| cached:', !!cached);
+  
 
   const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
   if (words.length === 0) return [];
@@ -480,39 +482,62 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
 
   termsToSearch.delete(''); // veiligheid
 
-  // 3) Alles parallel met Promise.all (geen conditionele vertraging meer)
-  const fetchPromises = [];
+  // 3) Sequentieel ophalen met retry op V1 en voortgang
+  let allProducts = [];
   const termList = Array.from(termsToSearch);
+  const totalTerms = termList.length;
+  let completedTerms = 0;
+  const MAX_V1_RETRIES = 5;
+  const BASE_RETRY_DELAY = 500;
+
   for (const term of termList) {
     if (signal?.aborted) break;
-    // Voor elke term zowel de Cloudflare worker als de V1-search parallel
-    console.log(`[searchALicious] term toegevoegd: "${term}"`);
-    fetchPromises.push(
-      (async () => {
-        const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,brands,nutriments,serving_size&page_size=${size}&sort_by=unique_scans_n`;
-        try {
-          const res = await timedFetch(url, signal, 6000);
-          if (!res.ok) return [];
-          const data = await res.json();
-          if (data.hits) { incrementCFUsage(); onRequest?.(); }
-          const hits = data.hits || [];
-          console.log(`[CF] "${term}" → ${hits.length} producten`);
-          return hits;
-        } catch { return []; }
-      })(),
-      fetchV1Search(term, signal, size)
-    );
-  }
+    const currentPercent = totalTerms > 0 ? Math.round((completedTerms / totalTerms) * 100) : 0;
+    onProgress?.({ percent: currentPercent, message: `Zoeken naar: "${term}"` });
 
-  const results = await Promise.all(fetchPromises);
-  // resultaten samenvoegen (elke promise gaf een array terug; flattenen)
-  let allProducts = [];
-  for (const productArray of results) {
-    if (Array.isArray(productArray)) {
-      allProducts.push(...productArray);
+    // Cloudflare worker (geen retry nodig)
+    let cfResults = [];
+    const cfUrl = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,brands,nutriments,serving_size&page_size=${size}&sort_by=unique_scans_n`;
+    try {
+      const res = await timedFetch(cfUrl, signal, 6000);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.hits) {
+          incrementCFUsage();
+          onRequest?.();
+          cfResults = data.hits || [];
+        }
+      }
+    } catch {}
+
+    // V1 met retry bij 503/fout
+    let v1Results = [];
+    let v1Done = false;
+    for (let attempt = 0; attempt < MAX_V1_RETRIES && !v1Done && !signal?.aborted; attempt++) {
+      if (attempt > 0) {
+        onProgress?.({ percent: currentPercent, message: `Herkansing ${attempt+1}/${MAX_V1_RETRIES} voor "${term}" – opnieuw proberen…` });
+        await delay(BASE_RETRY_DELAY * attempt);
+      }
+      const v1Url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,brands,nutriments,serving_size&page_size=${size}`;
+      try {
+        const res = await timedFetch(v1Url, signal, 6000);
+        if (res.ok) {
+          const data = await res.json();
+          v1Results = (data.products || []).map(p => ({ ...p, brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || '') }));
+          v1Done = true;
+        }
+        // Bij niet-ok status vallen we door naar de volgende poging (geen break, de loop gaat verder)
+      } catch {
+        // netwerk/timeout fout, volgende poging
+      }
     }
+    if (!v1Done) v1Results = [];
+
+    allProducts.push(...cfResults, ...v1Results);
+    completedTerms++;
+    onProgress?.({ percent: Math.round((completedTerms / totalTerms) * 100), message: `"${term}" voltooid (${completedTerms}/${totalTerms})` });
+    await delay(200); // kleine pauze tussen termen om de API niet te overbelasten
   }
-  console.log('[searchALicious] totaal producten vóór deduplicatie:', allProducts.length);
   // 4) Dedupliceren op productnaam
   const seen = new Set();
   allProducts = allProducts.filter(p => {
@@ -1142,6 +1167,7 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
   const [offResults, setOffResults] = useState([]);
   const [offLoading, setOffLoading] = useState(false);
   const [offPhaseMsg, setOffPhaseMsg] = useState('');
+  const [offProgress, setOffProgress] = useState(0);
   const [offError, setOffError] = useState('');
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [modalLabel, setModalLabel] = useState('');
@@ -1596,10 +1622,13 @@ function App() {
         const term = termen[i];
         progressMessages.push(`Bezig met "${term}"...`);
         setOffPhaseMsg(progressMessages.join(' · '));
-        try {
+        try {f
           const customMatches = customProducts.filter(p => p.naam.toLowerCase().includes(cleans[i].toLowerCase()));
           if (customMatches.length) gevonden.push(...customMatches.map(p => ({ product: { product_name: p.naam, brands: 'Eigen product', nutriments: { 'energy-kcal_100g': p.calorieën, proteins_100g: p.eiwitten, carbohydrates_100g: p.koolhydraten, fat_100g: p.vetten }, serving_size: null }, qty })));
-          const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1));
+            const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1), ({ percent, message }) => {
+            setOffProgress(percent);
+            setOffPhaseMsg(message);
+          });
           if (prods.length > 0) { gevonden.push(...prods.map(product => ({ product, qty }))); progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} gevonden`; }
           else { mislukt.push(term); progressMessages[progressMessages.length - 1] = `"${term}": niets gevonden`; }
         } catch (e) { if (e.name === 'AbortError') break; serverError = true; mislukt.push(term); progressMessages[progressMessages.length - 1] = `"${term}": fout`; }
@@ -1765,7 +1794,16 @@ Geen uitleg.`;
               ${offLoading ? '...' : 'Zoek'}
             </button>
           </div>
-          ${offLoading && html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0"><div class="spinner" style="border-top-color:var(--c)"/><span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span></div>`}
+          ${offLoading && html`
+            <div style="margin-top:10px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <div class="spinner" style="border-top-color:var(--c)"/>
+                <span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span>
+              </div>
+              <progress value=${offProgress} max="100" style="width:100%;height:6px;appearance:none;border-radius:3px;overflow:hidden;background:var(--s2);border:1px solid var(--border)">
+              </progress>
+              <div style="font-size:10px;color:var(--dim);text-align:right;margin-top:2px;">${offProgress}%</div>
+            </div>`}
         </div>
 
         <hr class="divider"/>
