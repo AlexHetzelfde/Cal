@@ -492,6 +492,7 @@ const searchALicious = async (q, signal, size = 100, onRequest, onProgress) => {
 
   for (const term of termList) {
     if (signal?.aborted) break;
+    console.log('[seq] start term:', term, '| voortgang:', completedTerms, '/', totalTerms);
     const currentPercent = totalTerms > 0 ? Math.round((completedTerms / totalTerms) * 100) : 0;
     onProgress?.({ percent: currentPercent, message: `Zoeken naar: "${term}"` });
 
@@ -515,6 +516,7 @@ const searchALicious = async (q, signal, size = 100, onRequest, onProgress) => {
     let v1Done = false;
     for (let attempt = 0; attempt < MAX_V1_RETRIES && !v1Done && !signal?.aborted; attempt++) {
       if (attempt > 0) {
+        console.warn('[seq] V1 herkansing', attempt + 1, '/', MAX_V1_RETRIES, 'voor term:', term);
         onProgress?.({ percent: currentPercent, message: `Herkansing ${attempt+1}/${MAX_V1_RETRIES} voor "${term}" – opnieuw proberen…` });
         await delay(BASE_RETRY_DELAY * attempt);
       }
@@ -525,6 +527,7 @@ const searchALicious = async (q, signal, size = 100, onRequest, onProgress) => {
           const data = await res.json();
           v1Results = (data.products || []).map(p => ({ ...p, brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || '') }));
           v1Done = true;
+        console.log('[seq] V1 succes voor term:', term, '| producten:', v1Results.length);
         }
         // Bij niet-ok status vallen we door naar de volgende poging (geen break, de loop gaat verder)
       } catch {
@@ -532,10 +535,11 @@ const searchALicious = async (q, signal, size = 100, onRequest, onProgress) => {
       }
     }
     if (!v1Done) v1Results = [];
-
+    if (!v1Done) console.warn('[seq] V1 definitief mislukt voor term:', term);
     allProducts.push(...cfResults, ...v1Results);
     completedTerms++;
     onProgress?.({ percent: Math.round((completedTerms / totalTerms) * 100), message: `"${term}" voltooid (${completedTerms}/${totalTerms})` });
+    console.log('[seq] term klaar:', term, '| cf:', cfResults.length, '| v1:', v1Results.length);
     await delay(200); // kleine pauze tussen termen om de API niet te overbelasten
   }
   // 4) Dedupliceren op productnaam
@@ -1613,6 +1617,7 @@ function App() {
     const TOTAL_TIMEOUT_MS = 15000;
     let timedOut = false;
     const timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, TOTAL_TIMEOUT_MS);
+    console.error('[handleOFFSearch] Timeout ingesteld op', TOTAL_TIMEOUT_MS, 'ms');
     try {
       const gevonden = [], mislukt = [], progressMessages = [];
       let serverError = false;
