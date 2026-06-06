@@ -406,7 +406,7 @@ const BRAND_ALIASES = {
   'ah': 'albert heijn',
   'deka': 'dekamarkt',
   'dirk': 'dirk van den broek',
-  'plus': 'plus supermarkt'
+  'plus': 'plus supermarkt',
 };
 
 function scoreProduct(product, query) {
@@ -417,22 +417,18 @@ function scoreProduct(product, query) {
   const naam = (product.product_name || '').toLowerCase();
   const merk = Array.isArray(product.brands) ? product.brands.join(', ').toLowerCase() : (product.brands || '').toLowerCase();
   const combined = naam + ' ' + merk;
-  const queryWords = query.toLowerCase().split(' ').filter(w => w.length >= 2);
-const expandedWords = [];
-for (const w of queryWords) {
-  expandedWords.push(w);
-  if (BRAND_ALIASES[w]) {
-    expandedWords.push(...BRAND_ALIASES[w].split(' '));
-  }
-}
-const woorden = [...new Set(expandedWords)];
-  const treffers = woorden.filter(w => combined.includes(w));
+  const woorden = query.toLowerCase().split(' ').filter(w => w.length >= 2);
+  const treffers = woorden.filter(w => {
+    if (combined.includes(w)) return true;
+    const alias = BRAND_ALIASES[w];
+    return alias ? combined.includes(alias) : false;
+  });
   const minMatches = woorden.length >= 3 ? 2 : 1;
   if (treffers.length < minMatches) return -1;
   let score = treffers.length * 10;
   if (naam === query.toLowerCase()) score += 50;
   else if (naam.startsWith(query.toLowerCase())) score += 30;
-  if (merk && woorden.some(w => merk.includes(w))) score += 15;
+  if (merk && woorden.some(w => merk.includes(w) || (BRAND_ALIASES[w] && merk.includes(BRAND_ALIASES[w])))) score += 15;
   if (product.serving_size) score += 5;
   return score;
 }
@@ -448,124 +444,59 @@ const fetchV1Search = async (term, signal, size = 50) => {
   } catch { return []; }
 };
 
-const searchALicious = async (q, signal, size = 100, onRequest, onProgress) => {
-  console.log('[searchALicious] functie gestart met q:', q);
-  console.log('[searchALicious] voor validatie-check');
+const searchALicious = async (q, signal, size = 100, onRequest) => {
   if (!q || q.length < 2) return [];
-  // 1) Cache lezen aan het begin (was voorheen niet aanwezig)
-  const cached = await getCachedResults(q);
-  if (cached) return cached;
-  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-  console.log('[searchALicious] query:', q, '| cached:', !!cached);
-  
-
   const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
   if (words.length === 0) return [];
 
-  // 2) Alle zoektermen verzamelen: volledige query, losse woorden, uitgebreide query (aliases), vertaalde termen
-  const termsToSearch = new Set();
-  termsToSearch.add(q);
-  for (const word of words) {
-    termsToSearch.add(word);
-  }
+  // Cache lezen aan het begin (was eerder alleen schrijven, nooit gelezen)
+  const cached = await getCachedResults(q);
+  if (cached) return cached;
 
-  // Uitgebreide query met BRAND_ALIASES
-  const expandedWords = words.map(w => BRAND_ALIASES[w] ? BRAND_ALIASES[w] : w);
-  const expandedQuery = expandedWords.join(' ');
-  if (expandedQuery !== q) {
-    termsToSearch.add(expandedQuery);
-  }
-
-  // Vertaalde termen via NL_EN (zoals eerder al gebeurde, nu gewoon extra term)
-  const translatedWords = words.map(w => NL_EN[w] || w).join(' ');
-  if (translatedWords !== q) {
-    termsToSearch.add(translatedWords);
-  }
-
-  termsToSearch.delete(''); // veiligheid
-
-  // 3) Sequentieel ophalen met retry op V1 en voortgang
-  let allProducts = [];
-  const termList = Array.from(termsToSearch);
-  const totalTerms = termList.length;
-  let completedTerms = 0;
-  const MAX_V1_RETRIES = 5;
-  const BASE_RETRY_DELAY = 500;
-
-  for (const term of termList) {
-    if (signal?.aborted) break;
-    console.log('[seq] start term:', term, '| voortgang:', completedTerms, '/', totalTerms);
-    const currentPercent = totalTerms > 0 ? Math.round((completedTerms / totalTerms) * 100) : 0;
-    onProgress?.({ percent: currentPercent, message: `Zoeken naar: "${term}"` });
-
-    // Cloudflare worker (geen retry nodig)
-    let cfResults = [];
-    const cfUrl = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,brands,nutriments,serving_size&page_size=${size}&sort_by=unique_scans_n`;
+  const fetchSearch = async (term) => {
+    if (signal?.aborted) return [];
+    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,brands,nutriments,serving_size&page_size=${size}&sort_by=unique_scans_n`;
     try {
-      const res = await timedFetch(cfUrl, signal, 6000);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.hits) {
-          incrementCFUsage();
-          onRequest?.();
-          cfResults = data.hits || [];
-        }
-      }
-    } catch {}
+      const res = await timedFetch(url, signal, 6000);
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (data.hits) { incrementCFUsage(); onRequest?.(); }
+      return data.hits || [];
+    } catch { return []; }
+  };
 
-    // V1 met retry bij 503/fout
-    let v1Results = [];
-    let v1Done = false;
-    for (let attempt = 0; attempt < MAX_V1_RETRIES && !v1Done && !signal?.aborted; attempt++) {
-      if (attempt > 0) {
-        console.warn('[seq] V1 herkansing', attempt + 1, '/', MAX_V1_RETRIES, 'voor term:', term);
-        onProgress?.({ percent: currentPercent, message: `Herkansing ${attempt+1}/${MAX_V1_RETRIES} voor "${term}" – opnieuw proberen…` });
-        await delay(BASE_RETRY_DELAY * attempt);
-      }
-      const v1Url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,brands,nutriments,serving_size&page_size=${size}`;
-      try {
-        const res = await timedFetch(v1Url, signal, 6000);
-        if (res.ok) {
-          const data = await res.json();
-          v1Results = (data.products || []).map(p => ({ ...p, brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || '') }));
-          v1Done = true;
-        console.log('[seq] V1 succes voor term:', term, '| producten:', v1Results.length);
-        }
-        // Bij niet-ok status vallen we door naar de volgende poging (geen break, de loop gaat verder)
-      } catch {
-        // netwerk/timeout fout, volgende poging
-      }
-    }
-    if (!v1Done) v1Results = [];
-    if (!v1Done) console.warn('[seq] V1 definitief mislukt voor term:', term);
-    allProducts.push(...cfResults, ...v1Results);
-    completedTerms++;
-    onProgress?.({ percent: Math.round((completedTerms / totalTerms) * 100), message: `"${term}" voltooid (${completedTerms}/${totalTerms})` });
-    console.log('[seq] term klaar:', term, '| cf:', cfResults.length, '| v1:', v1Results.length);
-    await delay(200); // kleine pauze tussen termen om de API niet te overbelasten
+  // Alle zoektermen samenstellen – altijd volledige query + losse woorden
+  const searchTerms = new Set([q]);
+  for (const w of words) searchTerms.add(w);
+
+  // NL -> EN vertaling
+  const translatedQuery = words.map(w => NL_EN[w] || w).join(' ');
+  if (translatedQuery !== q) searchTerms.add(translatedQuery);
+
+  // Merk-alias uitbreiding (bijv. "ah" -> "albert heijn")
+  const expandedQuery = words.map(w => BRAND_ALIASES[w] || w).join(' ');
+  if (expandedQuery !== q) searchTerms.add(expandedQuery);
+  for (const w of words) { if (BRAND_ALIASES[w]) searchTerms.add(BRAND_ALIASES[w]); }
+
+  // Alles parallel ophalen
+  if (signal?.aborted) return [];
+  const allResults = await Promise.all(
+    [...searchTerms].map(term => Promise.all([fetchSearch(term), fetchV1Search(term, signal, size)]))
+  );
+
+  let allProducts = [];
+  for (const [sa, v1] of allResults) {
+    if (sa.length) allProducts = [...allProducts, ...sa];
+    if (v1.length) allProducts = [...allProducts, ...v1];
   }
-  // 4) Dedupliceren op productnaam
-  const seen = new Set();
-  allProducts = allProducts.filter(p => {
-    const key = p.product_name?.toLowerCase();
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  console.log('[searchALicious] unieke producten na deduplicatie:', allProducts.length);
-  const ahProduct = allProducts.find(p => p.product_name?.toLowerCase().includes('choc chip'));
-  console.log('[searchALicious] AH choc chip product aanwezig:', ahProduct ? ahProduct.product_name : 'NEE');
-  // 5) Scoren en sorteren met de aangepaste scoreProduct (die nu BRAND_ALIASES kent)
-  const gesorteerd = allProducts
-    .map(p => ({ p, score: scoreProduct(p, q) }))
-    .filter(x => x.score >= 0)
-    .sort((a, b) => b.score - a.score)
-    .map(x => x.p);
 
+  const seen = new Set();
+  allProducts = allProducts.filter(p => { const key = p.product_name?.toLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; });
+  const gesorteerd = allProducts.map(p => ({ p, score: scoreProduct(p, q) })).filter(x => x.score >= 0).sort((a, b) => b.score - a.score).map(x => x.p);
   if (gesorteerd.length > 0) setCachedResults(q, gesorteerd);
   return gesorteerd;
 };
-  
+
 const offBarcode = async (barcode, signal) => {
   const hasNutriments = (product) => product && product.nutriments;
   const isValid = (data) => (data.status === 1 || data.status === 'success' || data.status_verbose === 'product found') && hasNutriments(data.product);
@@ -581,6 +512,7 @@ const offBarcode = async (barcode, signal) => {
   }
   return null;
 };
+
 
 // ── Free Exercise DB ──────────────────────────────────────────────────────────
 const EXERCISE_DB_URL = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
@@ -683,7 +615,6 @@ function MealLogCard({ meal, onRemove }) {
 }
 
 // ── ProductRow (modal) ────────────────────────────────────────────────────────
-// isFavorite en onToggleFavorite zijn optioneel — hartje wordt alleen getoond als onToggleFavorite is meegegeven
 function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite = false, onToggleFavorite = null }) {
   const n = product.nutriments;
   const rawServing = product.serving_size || '';
@@ -813,6 +744,7 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, f
       </div>
     </div>`;
 }
+
 
 // ── BarcodeScanner ────────────────────────────────────────────────────────────
 function BarcodeScanner({ onDetected, onClose }) {
@@ -1165,6 +1097,7 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analys
     </div>`;
 }
 
+
 // ── MealBuilderModal ──────────────────────────────────────────────────────────
 function MealBuilderModal({ onClose, onSave, onRequest }) {
   const [name, setName] = useState('');
@@ -1173,7 +1106,6 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
   const [offResults, setOffResults] = useState([]);
   const [offLoading, setOffLoading] = useState(false);
   const [offPhaseMsg, setOffPhaseMsg] = useState('');
-  const [offProgress, setOffProgress] = useState(0);
   const [offError, setOffError] = useState('');
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [modalLabel, setModalLabel] = useState('');
@@ -1375,6 +1307,7 @@ function GymChart({ workouts }) {
     </div>`;
 }
 
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const [log, setLog] = useState(loadLog);
@@ -1386,7 +1319,6 @@ function App() {
   const [offResults, setOffResults] = useState([]);
   const [offLoading, setOffLoading] = useState(false);
   const [offPhaseMsg, setOffPhaseMsg] = useState('');
-  const [offProgress, setOffProgress] = useState(0);
   const [offError, setOffError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [modalLabel, setModalLabel] = useState('');
@@ -1600,7 +1532,6 @@ function App() {
       const { signal } = controller;
       setOffLoading(true); setOffPhaseMsg('Barcode opzoeken…'); setOffError(''); setOffResults([]); setShowModal(false); setModalLabel(q);
       try {
-        console.log('[handleOFFSearch] try-blok gestart, gevonden/mislukt arrays leeg');
         const product = await offBarcode(q, signal);
         if (product) { setOffResults([{ product, qty: null }]); setShowModal(true); }
         else { setOffError(`Barcode ${q} niet gevonden in de database.`); setShowModal(true); }
@@ -1618,10 +1549,9 @@ function App() {
     const parsed = termen.map(extractQty);
     const cleans = parsed.map(p => p.clean);
     setModalLabel(cleans.join(', '));
-    const TOTAL_TIMEOUT_MS = 45000;
+    const TOTAL_TIMEOUT_MS = 15000;
     let timedOut = false;
     const timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, TOTAL_TIMEOUT_MS);
-    console.error('[handleOFFSearch] Timeout ingesteld op', TOTAL_TIMEOUT_MS, 'ms');
     try {
       const gevonden = [], mislukt = [], progressMessages = [];
       let serverError = false;
@@ -1634,11 +1564,7 @@ function App() {
         try {
           const customMatches = customProducts.filter(p => p.naam.toLowerCase().includes(cleans[i].toLowerCase()));
           if (customMatches.length) gevonden.push(...customMatches.map(p => ({ product: { product_name: p.naam, brands: 'Eigen product', nutriments: { 'energy-kcal_100g': p.calorieën, proteins_100g: p.eiwitten, carbohydrates_100g: p.koolhydraten, fat_100g: p.vetten }, serving_size: null }, qty })));
-          console.log('[handleOFFSearch] roep searchALicious aan met:', cleans[i]);
-            const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1), ({ percent, message }) => {
-            setOffProgress(percent);
-            setOffPhaseMsg(message);
-          });
+          const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1));
           if (prods.length > 0) { gevonden.push(...prods.map(product => ({ product, qty }))); progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} gevonden`; }
           else { mislukt.push(term); progressMessages[progressMessages.length - 1] = `"${term}": niets gevonden`; }
         } catch (e) { if (e.name === 'AbortError') break; serverError = true; mislukt.push(term); progressMessages[progressMessages.length - 1] = `"${term}": fout`; }
@@ -1804,16 +1730,7 @@ Geen uitleg.`;
               ${offLoading ? '...' : 'Zoek'}
             </button>
           </div>
-          ${offLoading && html`
-            <div style="margin-top:10px;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                <div class="spinner" style="border-top-color:var(--c)"/>
-                <span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span>
-              </div>
-              <progress value=${offProgress} max="100" style="width:100%;height:6px;appearance:none;border-radius:3px;overflow:hidden;background:var(--s2);border:1px solid var(--border)">
-              </progress>
-              <div style="font-size:10px;color:var(--dim);text-align:right;margin-top:2px;">${offProgress}%</div>
-            </div>`}
+          ${offLoading && html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0"><div class="spinner" style="border-top-color:var(--c)"/><span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span></div>`}
         </div>
 
         <hr class="divider"/>
