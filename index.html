@@ -495,7 +495,9 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
           if (!res.ok) return [];
           const data = await res.json();
           if (data.hits) { incrementCFUsage(); onRequest?.(); }
-          return data.hits || [];
+          const hits = data.hits || [];
+          console.log(`[CF] "${term}" → ${hits.length} producten`);
+          return hits;
         } catch { return []; }
       })(),
       fetchV1Search(term, signal, size)
