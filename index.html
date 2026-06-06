@@ -450,6 +450,7 @@ const fetchV1Search = async (term, signal, size = 50) => {
 
 const searchALicious = async (q, signal, size = 100, onRequest, onProgress) => {
   console.log('[searchALicious] functie gestart met q:', q);
+  console.log('[searchALicious] voor validatie-check');
   if (!q || q.length < 2) return [];
   // 1) Cache lezen aan het begin (was voorheen niet aanwezig)
   const cached = await getCachedResults(q);
