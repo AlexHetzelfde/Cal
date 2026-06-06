@@ -1615,7 +1615,7 @@ function App() {
     const parsed = termen.map(extractQty);
     const cleans = parsed.map(p => p.clean);
     setModalLabel(cleans.join(', '));
-    const TOTAL_TIMEOUT_MS = 15000;
+    const TOTAL_TIMEOUT_MS = 45000;
     let timedOut = false;
     const timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, TOTAL_TIMEOUT_MS);
     console.error('[handleOFFSearch] Timeout ingesteld op', TOTAL_TIMEOUT_MS, 'ms');
