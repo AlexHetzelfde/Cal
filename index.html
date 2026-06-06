@@ -503,13 +503,9 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
   const results = await Promise.all(fetchPromises);
   // resultaten samenvoegen (elke promise gaf een array terug; flattenen)
   let allProducts = [];
-  for (const resultSet of results) {
-    if (Array.isArray(resultSet)) {
-      for (const products of resultSet) {
-        if (Array.isArray(products)) {
-          allProducts.push(...products);
-        }
-      }
+  for (const productArray of results) {
+    if (Array.isArray(productArray)) {
+      allProducts.push(...productArray);
     }
   }
 
