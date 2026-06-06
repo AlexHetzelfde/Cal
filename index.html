@@ -453,6 +453,7 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
   // 1) Cache lezen aan het begin (was voorheen niet aanwezig)
   const cached = await getCachedResults(q);
   if (cached) return cached;
+  console.log('[searchALicious] query:', q, '| cached:', !!cached);
 
   const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
   if (words.length === 0) return [];
@@ -485,6 +486,7 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
   for (const term of termList) {
     if (signal?.aborted) break;
     // Voor elke term zowel de Cloudflare worker als de V1-search parallel
+    console.log(`[searchALicious] term toegevoegd: "${term}"`);
     fetchPromises.push(
       (async () => {
         const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,brands,nutriments,serving_size&page_size=${size}&sort_by=unique_scans_n`;
@@ -508,7 +510,7 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
       allProducts.push(...productArray);
     }
   }
-
+  console.log('[searchALicious] totaal producten vóór deduplicatie:', allProducts.length);
   // 4) Dedupliceren op productnaam
   const seen = new Set();
   allProducts = allProducts.filter(p => {
@@ -517,7 +519,9 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
     seen.add(key);
     return true;
   });
-
+  console.log('[searchALicious] unieke producten na deduplicatie:', allProducts.length);
+  const ahProduct = allProducts.find(p => p.product_name?.toLowerCase().includes('choc chip'));
+  console.log('[searchALicious] AH choc chip product aanwezig:', ahProduct ? ahProduct.product_name : 'NEE');
   // 5) Scoren en sorteren met de aangepaste scoreProduct (die nu BRAND_ALIASES kent)
   const gesorteerd = allProducts
     .map(p => ({ p, score: scoreProduct(p, q) }))
