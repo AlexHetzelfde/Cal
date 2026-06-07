@@ -524,10 +524,11 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
   const cached = await getCachedResults(q);
   if (cached) return cached;
 
-  const fetchSearch = async (term) => {
-    if (signal?.aborted) return [];
-    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}&sort_by=unique_scans_n&fuzziness=1&langs=nl,en,fr`;
-    try {
+  const fetchSearch = async (term, relevance = false) => {
+  if (signal?.aborted) return [];
+  const sort = relevance ? '' : '&sort_by=unique_scans_n';
+  const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}${sort}&fuzziness=1&langs=nl,en,fr`;
+  try {
   console.log('[proxy] zoeken:', term);
   const res = await timedFetch(url, signal, 6000);
   console.log('[proxy] status:', res.status);
@@ -565,7 +566,7 @@ console.log('[search] zoektermen:', [...searchTerms.keys()]);
   if (signal?.aborted) return [];
   const allResults = await Promise.all(
   [...searchTerms.entries()].map(([term, weight]) =>
-    fetchSearch(term).then(products => ({ weight, products }))
+    fetchSearch(term, weight >= 2).then(products => ({ weight, products }))
   )
 );
 
