@@ -514,11 +514,14 @@ const fetchV1Search = async (term, signal, size = 50) => {
   if (signal?.aborted) return [];
   const url = `https://off-proxy.mightygamer500.workers.dev/v1search?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}`;
   try {
-    const res = await timedFetch(url, signal, 6000);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.products || []).map(p => ({ ...p, brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || '') }));
-  } catch { return []; }
+  console.log('[v1] zoeken:', term);
+  const res = await timedFetch(url, signal, 6000);
+  console.log('[v1] status:', res.status);
+  if (!res.ok) { console.warn('[v1] niet ok:', res.status); return []; }
+  const data = await res.json();
+  console.log('[v1] products:', data.products?.length ?? 'geen products');
+  return (data.products || []).map(p => ({ ...p, brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || '') }));
+} catch (e) { console.error('[v1] fout:', e); return []; }
 };
 
 const searchALicious = async (q, signal, size = 100, onRequest) => {
@@ -534,12 +537,15 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
     if (signal?.aborted) return [];
     const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}&sort_by=unique_scans_n&fuzziness=1`;
     try {
-      const res = await timedFetch(url, signal, 6000);
-      if (!res.ok) return [];
-      const data = await res.json();
-      if (data.hits) { incrementCFUsage(); onRequest?.(); }
-      return data.hits || [];
-    } catch { return []; }
+  console.log('[proxy] zoeken:', term);
+  const res = await timedFetch(url, signal, 6000);
+  console.log('[proxy] status:', res.status);
+  if (!res.ok) { console.warn('[proxy] niet ok:', res.status); return []; }
+  const data = await res.json();
+  console.log('[proxy] hits:', data.hits?.length ?? 'geen hits');
+  if (data.hits) { incrementCFUsage(); onRequest?.(); }
+  return data.hits || [];
+} catch (e) { console.error('[proxy] fout:', e); return []; }
   };
 
   // Alle zoektermen samenstellen – altijd volledige query + losse woorden
@@ -566,6 +572,7 @@ if (translatedFR !== q && translatedFR !== translatedQuery) searchTerms.add(tran
 // Stemmed query
 const stemmedQuery = words.map(stemNL).join(' ');
 if (stemmedQuery !== q && stemmedQuery !== translatedQuery) searchTerms.add(stemmedQuery);
+console.log('[search] zoektermen:', [...searchTerms]);
 
   // Alles parallel ophalen
   if (signal?.aborted) return [];
@@ -578,6 +585,7 @@ if (stemmedQuery !== q && stemmedQuery !== translatedQuery) searchTerms.add(stem
     if (sa.length) allProducts = [...allProducts, ...sa];
     if (v1.length) allProducts = [...allProducts, ...v1];
   }
+  console.log('[search] totaal voor dedup:', allProducts.length);
 
   const seen = new Set();
   allProducts = allProducts.filter(p => {
@@ -586,9 +594,13 @@ if (stemmedQuery !== q && stemmedQuery !== translatedQuery) searchTerms.add(stem
   seen.add(key);
   return true;
 });
+  console.log('[search] na dedup:', allProducts.length);
   
   const gesorteerd = allProducts.map(p => ({ p, score: scoreProduct(p, q) })).filter(x => x.score >= 0).sort((a, b) => b.score - a.score).map(x => x.p);
+  console.log('[search] na scoring:', gesorteerd.length);
+if (gesorteerd.length > 0) console.log('[search] top 3:', gesorteerd.slice(0,3).map(p => p.product_name));
   if (gesorteerd.length > 0) setCachedResults(q, gesorteerd);
+  console.log('[search] eindresultaat:', gesorteerd.length);
   const prefs = await dbGet('ct_search_prefs', {});
 const pref = prefs[q.toLowerCase().trim()];
 if (pref && gesorteerd.length > 0) {
