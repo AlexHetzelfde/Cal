@@ -526,7 +526,7 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
 
   const fetchSearch = async (term) => {
     if (signal?.aborted) return [];
-    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}&sort_by=unique_scans_n&fuzziness=1`;
+    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}&sort_by=unique_scans_n&fuzziness=1&langs=nl,en,fr`;
     try {
   console.log('[proxy] zoeken:', term);
   const res = await timedFetch(url, signal, 6000);
