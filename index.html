@@ -512,7 +512,7 @@ function scoreProduct(product, query) {
 
 const fetchV1Search = async (term, signal, size = 50) => {
   if (signal?.aborted) return [];
-  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}`;const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,brands,nutriments,serving_size&page_size=${size}`;
+  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}`;
   try {
     const res = await timedFetch(url, signal, 6000);
     if (!res.ok) return [];
@@ -532,7 +532,7 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
 
   const fetchSearch = async (term) => {
     if (signal?.aborted) return [];
-    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}...&sort_by=unique_scans_n&fuzziness=1`;
+    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}&sort_by=unique_scans_n&fuzziness=1`;
     try {
       const res = await timedFetch(url, signal, 6000);
       if (!res.ok) return [];
