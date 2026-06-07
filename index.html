@@ -198,6 +198,15 @@ const loadPresets = () => dbGet('ct_presets', []);
 const savePresets = (p) => dbSet('ct_presets', p);
 
 // ── Favorieten ────────────────────────────────────────────────────────────────
+const saveSearchPref = async (query, product) => {
+  if (!query) return;
+  const prefs = await dbGet('ct_search_prefs', {});
+  prefs[query.toLowerCase().trim()] = {
+    product_name: product.product_name,
+    code: product.code || null,
+  };
+  await dbSet('ct_search_prefs', prefs);
+};
 const loadFavorites = () => dbGet('ct_favorites', []);
 const saveFavorites = (favs) => dbSet('ct_favorites', favs);
 
@@ -392,14 +401,47 @@ const setCachedResults = async (term, results) => {
   cache[term.toLowerCase()] = { results, ts: Date.now() };
   await dbSet('ct_search_cache', cache);
 };
+  
+const NL_STOPWORDS = new Set([
+  'de','het','een','van','met','en','of','in','op','voor',
+  'aan','bij','uit','naar','over','door','om','te','als',
+  'dat','die','dit','zijn','nog','ook','wel','niet','maar'
+]);  
 
 const NL_EN = {
-  walnoten:'walnuts', amandelen:'almonds', hazelnoten:'hazelnuts', cashewnoten:'cashews',
-  pindas:'peanuts', rozijnen:'raisins', havermout:'oatmeal', kwark:'quark', melk:'milk',
-  boter:'butter', kaas:'cheese', eieren:'eggs', kip:'chicken', rijst:'rice', brood:'bread',
-  honing:'honey', suiker:'sugar', bloem:'flour', aardappelen:'potatoes', tomaten:'tomatoes',
-  uien:'onions', wortelen:'carrots', spinazie:'spinach', zalm:'salmon', tonijn:'tuna',
-  chocolade:'chocolate', noten:'nuts', spek:'bacon', worst:'sausage'
+  walnoten:'walnuts', amandelen:'almonds', hazelnoten:'hazelnuts',
+  cashewnoten:'cashews', pindas:'peanuts', rozijnen:'raisins',
+  havermout:'oatmeal', kwark:'quark', melk:'milk', boter:'butter',
+  kaas:'cheese', eieren:'eggs', kip:'chicken', rijst:'rice',
+  brood:'bread', honing:'honey', suiker:'sugar', bloem:'flour',
+  aardappelen:'potatoes', tomaten:'tomatoes', uien:'onions',
+  wortelen:'carrots', spinazie:'spinach', zalm:'salmon',
+  tonijn:'tuna', chocolade:'chocolate', noten:'nuts', spek:'bacon',
+  worst:'sausage', yoghurt:'yogurt', karnemelk:'buttermilk',
+  slagroom:'cream', vla:'custard', smeerkaas:'cream cheese',
+  gehakt:'minced meat', kipfilet:'chicken breast', kalkoen:'turkey',
+  varkensvlees:'pork', rundvlees:'beef', garnalen:'shrimp',
+  makreel:'mackerel', haring:'herring', mosselen:'mussels',
+  komkommer:'cucumber', paprika:'bell pepper', courgette:'zucchini',
+  aubergine:'eggplant', bloemkool:'cauliflower', spruitjes:'brussels sprouts',
+  appel:'apple', peer:'pear', aardbei:'strawberry', banaan:'banana',
+  druiven:'grapes', citroen:'lemon', rogge:'rye', spelt:'spelt',
+  muesli:'muesli', granola:'granola', pindakaas:'peanut butter',
+  hagelslag:'chocolate sprinkles', mayonaise:'mayonnaise',
+  mosterd:'mustard', olijfolie:'olive oil', linzen:'lentils',
+  kikkererwten:'chickpeas', pompoen:'pumpkin',
+};
+
+const NL_FR = {
+  chocolade:'chocolat', melk:'lait', kaas:'fromage', boter:'beurre',
+  room:'crème', brood:'pain', kip:'poulet', rundvlees:'bœuf',
+  varkensvlees:'porc', appel:'pomme', peer:'poire', aardbei:'fraise',
+  banaan:'banane', suiker:'sucre', bloem:'farine', eieren:'œufs',
+  ei:'œuf', rijst:'riz', pasta:'pâtes', yoghurt:'yaourt',
+  kwark:'fromage blanc', koek:'biscuit', jam:'confiture', honing:'miel',
+  olie:'huile', zout:'sel', noten:'noix', amandelen:'amandes',
+  pindas:'cacahuètes', zalm:'saumon', tonijn:'thon', garnalen:'crevettes',
+  tomaten:'tomates', uien:'oignons', wortelen:'carottes', spinazie:'épinards',
 };
 
 const BRAND_ALIASES = {
@@ -409,33 +451,68 @@ const BRAND_ALIASES = {
   'plus': 'plus supermarkt',
 };
 
+function stemNL(word) {
+  const suffixes = ['tjes', 'jes', 'tje', 'en', 's'];
+  for (const suffix of suffixes) {
+    if (word.length > suffix.length + 3 && word.endsWith(suffix)) {
+      return word.slice(0, -suffix.length);
+    }
+  }
+  return word;
+}
+  
 function scoreProduct(product, query) {
   if (!product.nutriments) return -1;
   const n = product.nutriments;
   const heeftMacros = getKcal100g(n) > 0 && n['proteins_100g'] != null && n['carbohydrates_100g'] != null && n['fat_100g'] != null;
   if (!heeftMacros) return -1;
+
   const naam = (product.product_name || '').toLowerCase();
+  const naamNL = (product.product_name_nl || '').toLowerCase();
   const merk = Array.isArray(product.brands) ? product.brands.join(', ').toLowerCase() : (product.brands || '').toLowerCase();
   const combined = naam + ' ' + merk;
-  const woorden = query.toLowerCase().split(' ').filter(w => w.length >= 2);
-  const treffers = woorden.filter(w => {
-    if (combined.includes(w)) return true;
+  const combinedNL = naamNL + ' ' + merk;
+  const combinedCompact = combined.replace(/\s+/g, '');
+  const combinedNLCompact = combinedNL.replace(/\s+/g, '');
+
+  const woorden = query.toLowerCase().split(' ').filter(w => w.length >= 2 && !NL_STOPWORDS.has(w));
+  if (woorden.length === 0) return -1;
+
+  let score = 0;
+  let treffers = 0;
+
+  for (const w of woorden) {
     const alias = BRAND_ALIASES[w];
-    return alias ? combined.includes(alias) : false;
-  });
+    const wCompact = w.replace(/\s+/g, '');
+    if (naamNL && (combinedNL.includes(w) || (alias && combinedNL.includes(alias)))) {
+      score += 15; treffers++;
+    } else if (combined.includes(w) || (alias && combined.includes(alias))) {
+      score += 10; treffers++;
+    } else if (combinedNLCompact.includes(wCompact) || combinedCompact.includes(wCompact)) {
+      score += 5; treffers++;
+    }
+  }
+
   const minMatches = woorden.length >= 3 ? 2 : 1;
-  if (treffers.length < minMatches) return -1;
-  let score = treffers.length * 10;
-  if (naam === query.toLowerCase()) score += 50;
+  if (treffers < minMatches) return -1;
+
+  if (naamNL && naamNL === query.toLowerCase()) score += 60;
+  else if (naam === query.toLowerCase()) score += 50;
+  else if (naamNL && naamNL.startsWith(query.toLowerCase())) score += 35;
   else if (naam.startsWith(query.toLowerCase())) score += 30;
+
   if (merk && woorden.some(w => merk.includes(w) || (BRAND_ALIASES[w] && merk.includes(BRAND_ALIASES[w])))) score += 15;
   if (product.serving_size) score += 5;
+
+  const scans = product.unique_scans_n || 0;
+  score += Math.min(Math.log10(scans + 1) * 8, 25);
+
   return score;
 }
 
 const fetchV1Search = async (term, signal, size = 50) => {
   if (signal?.aborted) return [];
-  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,brands,nutriments,serving_size&page_size=${size}`;
+  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}`;const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,brands,nutriments,serving_size&page_size=${size}`;
   try {
     const res = await timedFetch(url, signal, 6000);
     if (!res.ok) return [];
@@ -446,7 +523,7 @@ const fetchV1Search = async (term, signal, size = 50) => {
 
 const searchALicious = async (q, signal, size = 100, onRequest) => {
   if (!q || q.length < 2) return [];
-  const words = q.toLowerCase().split(' ').filter(w => w.length >= 2);
+  const words = q.toLowerCase().split(' ').filter(w => w.length >= 2 && !NL_STOPWORDS.has(w));
   if (words.length === 0) return [];
 
   // Cache lezen aan het begin (was eerder alleen schrijven, nooit gelezen)
@@ -455,7 +532,7 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
 
   const fetchSearch = async (term) => {
     if (signal?.aborted) return [];
-    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,brands,nutriments,serving_size&page_size=${size}&sort_by=unique_scans_n`;
+    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}...&sort_by=unique_scans_n&fuzziness=1`;
     try {
       const res = await timedFetch(url, signal, 6000);
       if (!res.ok) return [];
@@ -478,6 +555,18 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
   if (expandedQuery !== q) searchTerms.add(expandedQuery);
   for (const w of words) { if (BRAND_ALIASES[w]) searchTerms.add(BRAND_ALIASES[w]); }
 
+  // Compound word fix
+const qCompact = q.replace(/\s+/g, '');
+if (qCompact !== q) searchTerms.add(qCompact);
+
+// NL→FR vertaling
+const translatedFR = words.map(w => NL_FR[w] || w).join(' ');
+if (translatedFR !== q && translatedFR !== translatedQuery) searchTerms.add(translatedFR);
+
+// Stemmed query
+const stemmedQuery = words.map(stemNL).join(' ');
+if (stemmedQuery !== q && stemmedQuery !== translatedQuery) searchTerms.add(stemmedQuery);
+
   // Alles parallel ophalen
   if (signal?.aborted) return [];
   const allResults = await Promise.all(
@@ -491,9 +580,27 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
   }
 
   const seen = new Set();
-  allProducts = allProducts.filter(p => { const key = p.product_name?.toLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; });
+  allProducts = allProducts.filter(p => {
+  const key = p.code || ((p.product_name?.toLowerCase() || '') + '_' + (Array.isArray(p.brands) ? p.brands.join(',').toLowerCase() : (p.brands || '').toLowerCase()));
+  if (!key || seen.has(key)) return false;
+  seen.add(key);
+  return true;
+});
+  
   const gesorteerd = allProducts.map(p => ({ p, score: scoreProduct(p, q) })).filter(x => x.score >= 0).sort((a, b) => b.score - a.score).map(x => x.p);
   if (gesorteerd.length > 0) setCachedResults(q, gesorteerd);
+  const prefs = await dbGet('ct_search_prefs', {});
+const pref = prefs[q.toLowerCase().trim()];
+if (pref && gesorteerd.length > 0) {
+  const prefIdx = gesorteerd.findIndex(p =>
+    (pref.code && p.code === pref.code) ||
+    p.product_name?.toLowerCase() === pref.product_name?.toLowerCase()
+  );
+  if (prefIdx > 0) {
+    const [preferred] = gesorteerd.splice(prefIdx, 1);
+    gesorteerd.unshift(preferred);
+  }
+}
   return gesorteerd;
 };
 
@@ -1442,9 +1549,10 @@ function App() {
   };
 
   const addOFF = (product, qty) => {
-    const n = product.nutriments, f = qty / 100;
-    addItems([{ naam: product.product_name, hoeveelheid: `${qty}g`, calorieën: getKcal100g(n)*f, eiwitten: (n['proteins_100g']||0)*f, koolhydraten: (n['carbohydrates_100g']||0)*f, vetten: (n['fat_100g']||0)*f }]);
-  };
+  const n = product.nutriments, f = qty / 100;
+  addItems([{ naam: product.product_name, hoeveelheid: `${qty}g`, calorieën: getKcal100g(n)*f, eiwitten: (n['proteins_100g']||0)*f, koolhydraten: (n['carbohydrates_100g']||0)*f, vetten: (n['fat_100g']||0)*f }]);
+  saveSearchPref(modalLabel || offQuery, product);
+};
 
   const closeModal = () => { setShowModal(false); setOffResults([]); setOffError(''); setTimeout(() => offInputRef.current?.focus(), 50); };
 
