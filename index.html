@@ -432,17 +432,7 @@ const NL_EN = {
   kikkererwten:'chickpeas', pompoen:'pumpkin',
 };
 
-const NL_FR = {
-  chocolade:'chocolat', melk:'lait', kaas:'fromage', boter:'beurre',
-  room:'crème', brood:'pain', kip:'poulet', rundvlees:'bœuf',
-  varkensvlees:'porc', appel:'pomme', peer:'poire', aardbei:'fraise',
-  banaan:'banane', suiker:'sucre', bloem:'farine', eieren:'œufs',
-  ei:'œuf', rijst:'riz', pasta:'pâtes', yoghurt:'yaourt',
-  kwark:'fromage blanc', koek:'biscuit', jam:'confiture', honing:'miel',
-  olie:'huile', zout:'sel', noten:'noix', amandelen:'amandes',
-  pindas:'cacahuètes', zalm:'saumon', tonijn:'thon', garnalen:'crevettes',
-  tomaten:'tomates', uien:'oignons', wortelen:'carottes', spinazie:'épinards',
-};
+
 
 const BRAND_ALIASES = {
   'ah': 'albert heijn',
@@ -493,38 +483,39 @@ function scoreProduct(product, query) {
     }
   }
 
-  const minMatches = woorden.length >= 3 ? 2 : 1;
-  if (treffers < minMatches) return -1;
+  let minMatches;
+if (woorden.length <= 2) minMatches = 1;
+else if (woorden.length <= 4) minMatches = 2;
+else minMatches = 3;
+if (treffers < minMatches) return -1;
+
+const essentieleWoorden = woorden.filter(w => BRAND_ALIASES[w] || w.length > 4);
+const essentieleMatches = essentieleWoorden.filter(w => {
+  const alias = BRAND_ALIASES[w];
+  return combined.includes(w) || combinedNL.includes(w) ||
+    (alias && (combined.includes(alias) || combinedNL.includes(alias)));
+}).length;
+if (essentieleWoorden.length > 0 && essentieleMatches === 0) return -1;
+  const coverage = treffers / woorden.length;
+score += Math.round(coverage * 20);
 
   if (naamNL && naamNL === query.toLowerCase()) score += 60;
   else if (naam === query.toLowerCase()) score += 50;
   else if (naamNL && naamNL.startsWith(query.toLowerCase())) score += 35;
   else if (naam.startsWith(query.toLowerCase())) score += 30;
 
-  if (merk && woorden.some(w => merk.includes(w) || (BRAND_ALIASES[w] && merk.includes(BRAND_ALIASES[w])))) score += 15;
+  const heeftMerkInQuery = woorden.some(w => BRAND_ALIASES[w]);
+if (merk && woorden.some(w => merk.includes(w) || (BRAND_ALIASES[w] && merk.includes(BRAND_ALIASES[w])))) {
+  score += heeftMerkInQuery ? 25 : 8;
+}
   if (product.serving_size) score += 5;
-
-  const scans = product.unique_scans_n || 0;
-  score += Math.min(Math.log10(scans + 1) * 8, 25);
 
   return score;
 }
 
-const fetchV1Search = async (term, signal, size = 50) => {
-  if (signal?.aborted) return [];
-  const url = `https://off-proxy.mightygamer500.workers.dev/v1search?search_terms=${encodeURIComponent(term)}&json=1&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}`;
-  try {
-  console.log('[v1] zoeken:', term);
-  const res = await timedFetch(url, signal, 6000);
-  console.log('[v1] status:', res.status);
-  if (!res.ok) { console.warn('[v1] niet ok:', res.status); return []; }
-  const data = await res.json();
-  console.log('[v1] products:', data.products?.length ?? 'geen products');
-  return (data.products || []).map(p => ({ ...p, brands: Array.isArray(p.brands) ? p.brands.join(', ') : (p.brands || '') }));
-} catch (e) { console.error('[v1] fout:', e); return []; }
-};
-
 const searchALicious = async (q, signal, size = 100, onRequest) => {
+  if (!q || q.length < 2) return [];
+  q = q.replace(/[&%#\/\\]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!q || q.length < 2) return [];
   const words = q.toLowerCase().split(' ').filter(w => w.length >= 2 && !NL_STOPWORDS.has(w));
   if (words.length === 0) return [];
@@ -548,71 +539,78 @@ const searchALicious = async (q, signal, size = 100, onRequest) => {
 } catch (e) { console.error('[proxy] fout:', e); return []; }
   };
 
-  // Alle zoektermen samenstellen – altijd volledige query + losse woorden
-  const searchTerms = new Set([q]);
-  for (const w of words) searchTerms.add(w);
+  const searchTerms = new Map();
+searchTerms.set(q, 3);
 
-  // NL -> EN vertaling
-  const translatedQuery = words.map(w => NL_EN[w] || w).join(' ');
-  if (translatedQuery !== q) searchTerms.add(translatedQuery);
+for (const w of words) searchTerms.set(w, 1);
 
-  // Merk-alias uitbreiding (bijv. "ah" -> "albert heijn")
-  const expandedQuery = words.map(w => BRAND_ALIASES[w] || w).join(' ');
-  if (expandedQuery !== q) searchTerms.add(expandedQuery);
-  for (const w of words) { if (BRAND_ALIASES[w]) searchTerms.add(BRAND_ALIASES[w]); }
+const translatedQuery = words.map(w => NL_EN[w] || w).join(' ');
+if (translatedQuery !== q) searchTerms.set(translatedQuery, 2);
 
-  // Compound word fix
-const qCompact = q.replace(/\s+/g, '');
-if (qCompact !== q) searchTerms.add(qCompact);
+const expandedQuery = words.map(w => BRAND_ALIASES[w] || w).join(' ');
+if (expandedQuery !== q && expandedQuery !== translatedQuery) searchTerms.set(expandedQuery, 2);
+for (const w of words) {
+  if (BRAND_ALIASES[w] && !searchTerms.has(BRAND_ALIASES[w])) {
+    searchTerms.set(BRAND_ALIASES[w], 1);
+  }
+}
 
-// NL→FR vertaling
-const translatedFR = words.map(w => NL_FR[w] || w).join(' ');
-if (translatedFR !== q && translatedFR !== translatedQuery) searchTerms.add(translatedFR);
-
-// Stemmed query
 const stemmedQuery = words.map(stemNL).join(' ');
-if (stemmedQuery !== q && stemmedQuery !== translatedQuery) searchTerms.add(stemmedQuery);
-console.log('[search] zoektermen:', [...searchTerms]);
-
+if (stemmedQuery !== q && stemmedQuery !== translatedQuery && stemmedQuery !== expandedQuery) {
+  searchTerms.set(stemmedQuery, 1);
+}
+console.log('[search] zoektermen:', [...searchTerms.keys()]);
   // Alles parallel ophalen
   if (signal?.aborted) return [];
   const allResults = await Promise.all(
-    [...searchTerms].map(term => Promise.all([fetchSearch(term), fetchV1Search(term, signal, size)]))
-  );
+  [...searchTerms.entries()].map(([term, weight]) =>
+    fetchSearch(term).then(products => ({ weight, products }))
+  )
+);
 
-  let allProducts = [];
-  for (const [sa, v1] of allResults) {
-    if (sa.length) allProducts = [...allProducts, ...sa];
-    if (v1.length) allProducts = [...allProducts, ...v1];
+  const productFreq = new Map();
+for (const { weight, products } of allResults) {
+  for (const p of products) {
+    const key = p.code || ((p.product_name?.toLowerCase() || '') + '_' + (Array.isArray(p.brands) ? p.brands.join(',').toLowerCase() : (p.brands || '').toLowerCase()));
+    if (!key) continue;
+    if (productFreq.has(key)) {
+      productFreq.get(key).totalWeight += weight;
+    } else {
+      productFreq.set(key, { product: p, totalWeight: weight });
+    }
   }
-  console.log('[search] totaal voor dedup:', allProducts.length);
-
-  const seen = new Set();
-  allProducts = allProducts.filter(p => {
-  const key = p.code || ((p.product_name?.toLowerCase() || '') + '_' + (Array.isArray(p.brands) ? p.brands.join(',').toLowerCase() : (p.brands || '').toLowerCase()));
-  if (!key || seen.has(key)) return false;
-  seen.add(key);
-  return true;
-});
-  console.log('[search] na dedup:', allProducts.length);
+}
+console.log('[search] na dedup:', productFreq.size);
   
-  const gesorteerd = allProducts.map(p => ({ p, score: scoreProduct(p, q) })).filter(x => x.score >= 0).sort((a, b) => b.score - a.score).map(x => x.p);
-  console.log('[search] na scoring:', gesorteerd.length);
+  const prefs = await dbGet('ct_search_prefs', {});
+const pref = prefs[q.toLowerCase().trim()];
+  const gesorteerd = [...productFreq.values()]
+  .map(({ product, totalWeight }) => {
+    const relevance = scoreProduct(product, q);
+    const scans = product.unique_scans_n || 0;
+    const popularity = Math.min(Math.log10(scans + 1) * 8, 25);
+    const prefBonus = pref && (
+  (pref.code && product.code === pref.code) ||
+  product.product_name?.toLowerCase() === pref.product_name?.toLowerCase()
+) ? 50 : 0;
+return {
+  p: product,
+  score: relevance >= 0 ? relevance + Math.min(totalWeight * 3, 30) + prefBonus : -1,
+  popularity
+};
+  })
+  .filter(x => x.score >= 0)
+  .sort((a, b) => {
+    const diff = b.score - a.score;
+    if (Math.abs(diff) > 5) return diff;
+    return b.popularity - a.popularity;
+  })
+  .map(x => x.p);
+console.log('[search] na scoring:', gesorteerd.length);
 if (gesorteerd.length > 0) console.log('[search] top 3:', gesorteerd.slice(0,3).map(p => p.product_name));
   if (gesorteerd.length > 0) setCachedResults(q, gesorteerd);
   console.log('[search] eindresultaat:', gesorteerd.length);
-  const prefs = await dbGet('ct_search_prefs', {});
-const pref = prefs[q.toLowerCase().trim()];
-if (pref && gesorteerd.length > 0) {
-  const prefIdx = gesorteerd.findIndex(p =>
-    (pref.code && p.code === pref.code) ||
-    p.product_name?.toLowerCase() === pref.product_name?.toLowerCase()
-  );
-  if (prefIdx > 0) {
-    const [preferred] = gesorteerd.splice(prefIdx, 1);
-    gesorteerd.unshift(preferred);
-  }
-}
+  
   return gesorteerd;
 };
 
