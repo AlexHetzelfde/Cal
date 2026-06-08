@@ -1233,8 +1233,6 @@ function NutritionChart({ calorieGoal = 2000 }) {
     </div>`;
 }
 
-// ── GymChart ──────────────────────────────────────────────────────────────────
-// Fixed week ordering: each week now goes oldest-to-newest top-to-bottom
 function GymChart({ workouts }) {
   const [history, setHistory] = useState({});
   useEffect(() => { dbGet('ct_workout_history', {}).then(setHistory); }, []);
@@ -1246,4 +1244,25 @@ function GymChart({ workouts }) {
       const date = new Date(today);
       date.setDate(date.getDate() - (w * 7 + d));
       const key = date.toISOString().slice(0, 10);
-      week.push({ key, count: (history[key] || []).length
+      week.push({ key, count: (history[key] || []).length });
+    }
+    weeks.push(week);
+  }
+  weeks.reverse();
+  const maxCount = Math.max(...weeks.flat().map(d => d.count), 1);
+  return html`
+    <div class="card">
+      <div class="section-label">Workout activiteit</div>
+      <div style="display:flex;gap:3px;overflow-x:auto;padding-bottom:8px;">
+        ${weeks.map((week, wi) => html`
+          <div style="display:flex;flex-direction:column;gap:3px;">
+            ${week.map(day => {
+              const intensity = Math.min(day.count / maxCount, 1);
+              const color = intensity === 0 ? 'var(--s2)' : `rgba(133,176,152,${0.2 + intensity * 0.8})`;
+              return html`<div title="${day.key}: ${day.count} sessies" style="width:12px;height:12px;border-radius:2px;background:${color};border:1px solid var(--border);"></div>`;
+            })}
+          </div>`)}
+      </div>
+      <div style="font-size:10px;color:var(--dim);margin-top:8px;">Hoe groener, hoe meer sessies</div>
+    </div>`;
+}
