@@ -1155,8 +1155,8 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
     } catch(e) { if (e.name==='AbortError') return; setOffError('Fout: '+(e.message||'Probeer opnieuw.')); setShowSearchModal(true); }
     finally { setOffLoading(false); setOffPhaseMsg(''); }
   };
-  const handleAISearch = async () => {
-    const q = aiQuery.trim(); if (!q || aiLoading) return;
+  const handleAISearch = async (overrideQuery) => {
+    const q = (overrideQuery ?? aiQuery).trim();
     setAiLoading(true); setAiError('');
     try {
       const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
@@ -1348,6 +1348,7 @@ function App() {
   const workoutsRef = useRef(workouts);
   const [customExercises, setCustomExercises] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [toast, setToast] = useState('');
 
   // ── Favorieten state ───────────────────────────────────────────────────────
   const [favorites, setFavorites] = useState([]);
@@ -1402,6 +1403,12 @@ function App() {
   const offInputRef = useRef();
   const aiInputRef = useRef();
   const abortOFF = useRef(null);
+  const toastTimeout = useRef(null);
+  const showToast = (msg) => {
+    if (toastTimeout.current) clearTimeout(toastTimeout.current);
+    setToast(msg);
+    toastTimeout.current = setTimeout(() => setToast(''), 2500);
+  };
 
   useEffect(() => { saveLog(log); }, [log]);
   useEffect(() => { jset('ct_maxResults', maxResults); }, [maxResults]);
@@ -1514,6 +1521,7 @@ function App() {
     dayEntries.push({ workoutId: workout.id, naam: workout.naam, timestamp: Date.now() });
     history[today] = dayEntries;
     await dbSet('ct_workout_history', history);
+    showToast('✓ ' + workout.naam + ' gelogd!');
   };
   const addCustomProduct = (product) => setCustomProducts(prev => [...prev, { ...product, id: Date.now() + Math.random() }]);
   const deleteCustomProduct = (id) => setCustomProducts(prev => prev.filter(p => p.id !== id));
@@ -1599,8 +1607,8 @@ function App() {
   };
 
   // ── AI beschrijven ─────────────────────────────────────────────────────────
-  const handleAISearch = async () => {
-    const q = aiQuery.trim();
+  const handleAISearch = async (overrideQuery) => {
+  const q = (overrideQuery ?? aiQuery).trim();
     if (!q || aiLoading) return;
     setAiLoading(true); setAiError(''); setAiBericht('');
     try {
@@ -1677,7 +1685,7 @@ Geen uitleg.`;
     ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)}/>`}
     ${showAddProduct && html`<${AddProductModal} onClose=${() => setShowAddProduct(false)} onSave=${addCustomProduct}/>`}
     ${showAddExercise && html`<${AddCustomExerciseModal} onClose=${() => setShowAddExercise(false)} onSave=${handleSaveCustomExercise}/>`}
-
+    ${toast && html`<div style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:var(--p);color:var(--bg);padding:10px 22px;border-radius:20px;font-size:13px;font-weight:700;z-index:200;white-space:nowrap;box-shadow:0 4px 24px rgba(0,0,0,.4);animation:fadeUp .2s ease;pointer-events:none">${toast}</div>`}
     ${showModal && html`<${SearchModal}
       results=${offResults}
       query=${modalLabel || offQuery}
