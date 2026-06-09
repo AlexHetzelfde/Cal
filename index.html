@@ -1856,7 +1856,7 @@ Geen uitleg.`;
                   onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
                   onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
               </div>`)}
-          </div>`}
+          </div>}
 
           <div class="tab-content" style="display:${libTab==='favorieten'?'block':'none'}">
             ${favorites.length === 0 && html`<${EmptyState} icon="♡" title="Nog geen favorieten opgeslagen" sub="Tik op ♡ bij een zoekresultaat om het hier op te slaan."/>`}
