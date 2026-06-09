@@ -102,7 +102,7 @@ const jget = (k,fb) => { try { const v=localStorage.getItem(k); return v!==null?
 const jset = (k,v) => localStorage.setItem(k,JSON.stringify(v));
 const getKey = () => localStorage.getItem('ct_key') || '';
 const setKey = v => localStorage.setItem('ct_key',v);
-function loadLog() { const d=jget('ct_log',{}); return d.date===TODAY()?d.items||[]; }
+function loadLog() { const d=jget('ct_log',{}); return d.date===TODAY()?d.items||[]:[];  }
 async function saveLog(log) {
   jset('ct_log',{date:TODAY(),items:log});
   const history=await dbGet('ct_food_history',{}); history[TODAY()]=log; await dbSet('ct_food_history',history);
