@@ -1741,7 +1741,7 @@ Geen uitleg.`;
     <!-- Content -->
     <div style="max-width:480px;margin:0 auto;padding:16px 14px 80px">
 
-      ${tab==='add' && html`<div class="tab-content">`}
+      <div class="tab-content" style="display:${tab==='add'?'block':'none'}">
         <!-- OFF zoekbalk -->
         <div class="card" style="border-top:2px solid #7fa4b835">
           <div class="section-label" style="color:var(--c)">● Database zoeken</div>
@@ -1817,7 +1817,7 @@ Geen uitleg.`;
               : null}
           </div>
 
-          ${libTab === 'maaltijden' && html`<div class="tab-content">`}
+          <div class="tab-content" style="display:${libTab==='maaltijden'?'block':'none'}">
           ${presets.length === 0 && html`<${EmptyState} icon="🍽" title="Nog geen maaltijden opgeslagen" sub='Maak er een via "+ Nieuw".'/>`}
             ${presets.map((preset, idx) => {
               const totalKcal = preset.items.reduce((a, i) => a + i.calorieën, 0);
@@ -1839,7 +1839,7 @@ Geen uitleg.`;
             })}
           </div>`}
 
-          ${libTab === 'producten' && html`<div class="tab-content">`}
+          <div class="tab-content" style="display:${libTab==='producten'?'block':'none'}">
             ${customProducts.length === 0 && html`<${EmptyState} icon="📦" title="Nog geen eigen producten" sub='Voeg er een toe via "+ Nieuw".'/>`}
             ${customProducts.map((p, idx) => html`
               <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < customProducts.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
@@ -1858,7 +1858,7 @@ Geen uitleg.`;
               </div>`)}
           </div>`}
 
-          ${libTab === 'favorieten' && html`<div class="tab-content">`}
+          <div class="tab-content" style="display:${libTab==='favorieten'?'block':'none'}">
             ${favorites.length === 0 && html`<${EmptyState} icon="♡" title="Nog geen favorieten opgeslagen" sub="Tik op ♡ bij een zoekresultaat om het hier op te slaan."/>`}
             ${favorites.map((fav, idx) => html`
   <div key=${fav.id || fav.product_name} style=${idx < favorites.length-1 ? 'border-bottom:1px solid var(--border)' : ''}>
@@ -1891,7 +1891,7 @@ Geen uitleg.`;
           ${log.length===0 && html`<${EmptyState} icon="🍽" title="Nog niets gelogd vandaag"/>`}
       </div>`}
 
-      ${tab==='workout' && html`<div class="tab-content">`}
+      <div class="tab-content" style="display:${tab==='workout'?'block':'none'}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div style="font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">Mijn workouts</div>
           <button onClick=${() => { setEditingWorkout(null); setShowWorkoutBuilder(true); }}
@@ -1933,7 +1933,7 @@ Geen uitleg.`;
         </div>
       </div>`}
 
-      ${tab==='settings' && html`<div class="tab-content">`}
+      <div class="tab-content" style="display:${tab==='settings'?'block':'none'}">
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:10px">Gemini API Key</div>
           <div style="display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:9px;margin-bottom:12px;background:${key?'#85b0981a':'#b872721a'};border:1px solid ${key?'#85b09840':'#b8727240'}">
@@ -2013,7 +2013,7 @@ Geen uitleg.`;
         </div>
       </div>`}
 
-      ${tab==='progress' && html`<div class="tab-content">`}
+      <div class="tab-content" style="display:${tab==='progress'?'block':'none'}">
           <div style="display:flex;gap:6px;margin-bottom:16px">
             <button onClick=${() => setProgressView('voeding')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='voeding'?'var(--p)':'var(--border)'};background:${progressView==='voeding'?'var(--p)':'transparent'};color:${progressView==='voeding'?'var(--bg)':'var(--muted)'}">Voeding</button>
             <button onClick=${() => setProgressView('gym')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='gym'?'var(--c)':'var(--border)'};background:${progressView==='gym'?'var(--c)':'transparent'};color:${progressView==='gym'?'var(--bg)':'var(--muted)'}">Gym</button>
