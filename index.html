@@ -1889,8 +1889,7 @@ Geen uitleg.`;
               : html`<${LogCard} key=${entry.id} item=${entry} onRemove=${() => setLog(p => p.filter(e => e.id !== entry.id))} />`)}
           </div>`}
           ${log.length===0 && html`<${EmptyState} icon="🍽" title="Nog niets gelogd vandaag"/>`}
-      </div>`}
-
+      </div>
       <div class="tab-content" style="display:${tab==='workout'?'block':'none'}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div style="font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">Mijn workouts</div>
@@ -1931,8 +1930,7 @@ Geen uitleg.`;
                 onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
             </div>`)}
         </div>
-      </div>`}
-
+      </div>
       <div class="tab-content" style="display:${tab==='settings'?'block':'none'}">
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:10px">Gemini API Key</div>
@@ -2011,8 +2009,7 @@ Geen uitleg.`;
             <span style="color:var(--muted)">${customExercises.length} eigen oefening${customExercises.length !== 1 ? 'en' : ''} opgeslagen · ${favorites.length} favoriet${favorites.length !== 1 ? 'en' : ''}</span>
           </div>
         </div>
-      </div>`}
-
+      </div>
       <div class="tab-content" style="display:${tab==='progress'?'block':'none'}">
           <div style="display:flex;gap:6px;margin-bottom:16px">
             <button onClick=${() => setProgressView('voeding')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='voeding'?'var(--p)':'var(--border)'};background:${progressView==='voeding'?'var(--p)':'transparent'};color:${progressView==='voeding'?'var(--bg)':'var(--muted)'}">Voeding</button>
