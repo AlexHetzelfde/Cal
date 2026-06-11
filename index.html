@@ -369,6 +369,7 @@ const timedFetch = (url, signal, ms = 20000) => {
 };
 
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
+const getProductImage = (p) => p?.image_front_small_url || p?.image_small_url || p?.image_front_thumb_url || p?.image || null;
 
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 const CF_USAGE_KEY = 'ct_cf_usage';
@@ -454,7 +455,7 @@ const searchALicious = async (q, signal, size = 100, onRequest, onCacheHit) => {
   const fetchSearch = async (term, relevance = false) => {
     if (signal?.aborted) return [];
     const sort = relevance ? '' : '&sort_by=unique_scans_n';
-    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code&page_size=${size}${sort}&fuzziness=1&langs=nl,en,fr`;
+    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code,image_front_small_url,image_small_url&page_size=${size}${sort}&fuzziness=1&langs=nl,en,fr`;
     try {
       const res = await timedFetch(url, signal, 6000);
       if (!res.ok) return [];
@@ -508,7 +509,7 @@ const offBarcode = async (barcode, signal) => {
     try {
       const url = version === 'v0'
         ? `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`
-        : `https://world.openfoodfacts.org/api/${version}/product/${barcode}?fields=product_name,brands,nutriments,serving_size`;
+        : `https://world.openfoodfacts.org/api/${version}/product/${barcode}?fields=product_name,brands,nutriments,serving_size,image_front_small_url,image_small_url`;
       const res = await timedFetch(url, signal, 8000);
       const data = await res.json();
       if (isValid(data)) return data.product;
@@ -561,6 +562,16 @@ function useModalBehavior(onClose) {
     touchHandlers: { onTouchStart, onTouchMove, onTouchEnd }
   };
 }
+// ── ProductThumb ──────────────────────────────────────────────────────────────
+function ProductThumb({ src, size = 40 }) {
+  const [error, setError] = useState(false);
+  const style = `width:${size}px;height:${size}px;border-radius:8px;flex-shrink:0`;
+  if (!src || error) {
+    return html`<div style="${style};background:var(--s2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:${Math.round(size*0.45)}px;opacity:.5">🍽</div>`;
+  }
+  return html`<img src=${src} loading="lazy" onError=${() => setError(true)} style="${style};object-fit:contain;background:var(--s2);border:1px solid var(--border);padding:2px"/>`;
+}
+
 // ── EmptyState ────────────────────────────────────────────────────────────────
 function EmptyState({ icon, title, sub }) {
   return html`
@@ -663,6 +674,7 @@ function LogCard({ item, onRemove, onEdit, removable = true }) {
   return html`
     <div class=${'logcard' + (removing ? ' fade-out' : '')} style="border-left:3px solid ${accent};padding-left:11px;flex-direction:column;align-items:stretch;gap:0;padding-bottom:${editing?'10px':''}">
       <div style="display:flex;align-items:center;gap:10px">
+        ${item._image && html`<${ProductThumb} src=${item._image} size=40 />`}
         <div style="flex:1;min-width:0">
           <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.naam}</div>
           <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
@@ -753,6 +765,7 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
   return html`
     <div class=${'product-row' + (expanded ? ' expanded' : '')}>
       <div class="product-row-header" onClick=${onToggle}>
+        <${ProductThumb} src=${getProductImage(product)} size=40 />
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${product.product_name}</div>
           ${product.brands && html`<div style="font-size:11px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${product.brands}</div>`}
@@ -1150,6 +1163,7 @@ function MealBuilderModal({ onClose, onSave, onRequest, favorites = [], onToggle
     setItems(p => [...p, {
       naam: product.product_name, hoeveelheid: `${qty}g`,
       calorieën: getKcal100g(n)*f, eiwitten: (n['proteins_100g']||0)*f, koolhydraten: (n['carbohydrates_100g']||0)*f, vetten: (n['fat_100g']||0)*f,
+      _image: getProductImage(product),
       id: Date.now()+Math.random()
     }]);
     setShowSearchModal(false); setOffResults([]); setOffError('');
@@ -1553,6 +1567,7 @@ function App() {
       eiwitten: (n['proteins_100g'] || 0) * f,
       koolhydraten: (n['carbohydrates_100g'] || 0) * f,
       vetten: (n['fat_100g'] || 0) * f,
+      _image: getProductImage(product),
       _per100g: {
         kcal: getKcal100g(n),
         eiwitten: n['proteins_100g'] || 0,
@@ -1780,7 +1795,8 @@ Geen uitleg.`;
             product_name: product.product_name,
             brands: product.brands || '',
             nutriments: product.nutriments,
-            serving_size: product.serving_size || null
+            serving_size: product.serving_size || null,
+            image_front_small_url: getProductImage(product) || null
           }];
       saveFavorites(updated);
       return updated;
