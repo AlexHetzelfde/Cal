@@ -152,13 +152,22 @@ function openDB() {
 async function dbGet(key, fallback) {
   try {
     const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('store', 'readonly');
-      const req = tx.objectStore('store').get(key);
-      req.onsuccess = () => { if (req.result !== undefined) resolve(req.result); else resolve(fallback); };
-      req.onerror = reject;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('store', 'readonly');
+        const req = tx.objectStore('store').get(key);
+        req.onsuccess = () => { 
+          if (req.result !== undefined) resolve(req.result); 
+          else resolve(fallback); 
+        };
+        req.onerror = () => resolve(fallback); // vang fout op en gebruik fallback
+      } catch {
+        resolve(fallback);
+      }
     });
-  } catch { return fallback; }
+  } catch {
+    return fallback;
+  }
 }
 async function dbSet(key, value) {
   const db = await openDB();
@@ -1234,7 +1243,7 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
             <div style="display:flex;gap:8px">
               <div style="position:relative;flex:1">
                 <input value=${aiQuery} onInput=${e=>setAiQuery(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="width:100%;padding-right:${aiQuery?'32px':'12px'}"/>
-                ${aiQuery && html`<button onClick=${()=>{setAiQuery('');setAiBericht('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
+                onClick=${()=>{setAiQuery('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
               </div>
               <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer">${aiLoading?'Schatten…':'Schat'}</button>
             </div>
@@ -1389,6 +1398,25 @@ function App() {
   const [customExercises, setCustomExercises] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState('');
+    useEffect(() => {
+    Promise.all([
+      loadWorkouts(),
+      loadCustomExercises(),
+      loadPresets(),
+      dbGet('ct_custom_products', []),
+      loadFavorites(),
+    ]).then(([w, ex, pr, cp, favs]) => {
+      setWorkouts(w);
+      setCustomExercises(ex);
+      setPresets(pr);
+      setCustomProducts(cp);
+      setFavorites(favs);
+      setIsLoading(false);
+    }).catch(() => {
+      // Mocht er onverhoopt een fout optreden, stop dan met laden
+      setIsLoading(false);
+    });
+  }, []);
 
   const [favorites, setFavorites] = useState([]);
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
@@ -1674,7 +1702,7 @@ function App() {
         response = await callGemini(NUTRITION_SYSTEM, q, 4096);
       }
       const parsed = parseGeminiJson(response);
-      const mealName = aiQuery.trim() || 'AI schatting';
+      const mealName = (overrideQuery ?? aiQuery).trim() || 'AI schatting';
       addItems(parsed.items || [], mealName);
       setAiBericht(parsed.bericht || '');
       setAiQuery('');
@@ -1851,7 +1879,7 @@ Geen uitleg.`;
             <button class="icon-btn" onClick=${() => fileInputRef.current.click()} title="Foto toevoegen" style="flex-shrink:0">📷</button>
             <div style="position:relative;flex:1">
               <input ref=${aiInputRef} value=${aiQuery} onInput=${e=>{ setAiQuery(e.target.value); if(aiBericht||aiError){ setAiBericht(''); setAiError(''); } }} onKeyDown=${e=>e.key==='Enter'&&handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="width:100%;padding-right:${aiQuery?'32px':'12px'}"/>
-              ${aiQuery && html`<button onClick=${()=>{setAiQuery('');setAiBericht('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
+              ${aiQuery && html`<button onClick=${()=>{setAiQuery('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
             </div>
             <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${aiLoading||!aiQuery.trim()?'.3':'1'};white-space:nowrap">
               ${aiLoading ? 'Schatten…' : 'Schat'}
