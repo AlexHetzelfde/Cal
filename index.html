@@ -1884,17 +1884,37 @@ function App() {
   setPRs(currentPRs);
   return newPRNames;
 };
-  
-  const handleStartSession = (workout) => {
+
+const handleStartSession = (workout) => {
   setActiveSession({
     workout,
     startTime: Date.now(),
     exercises: workout.oefeningen.map(oe => ({
       ...oe,
       sets: [{ reps: oe.reps, weight: 0 }]
+    }))
+  });
+};
 
-  const handleSaveSession = async (sessionData) => {
-  const handleSaveQuickAdd = async (date, exercises) => {
+const handleSaveSession = async (sessionData) => {
+  const today = TODAY();
+  const history = await dbGet('ct_workout_history', {});
+  const dayEntries = history[today] || [];
+  dayEntries.push({
+    workoutId: sessionData.workout.id,
+    naam: sessionData.workout.naam,
+    timestamp: Date.now(),
+    exercises: sessionData.exercises
+  });
+  history[today] = dayEntries;
+  await dbSet('ct_workout_history', history);
+  const newPRs = await checkAndUpdatePRs(sessionData.exercises);
+  if (newPRs.length > 0) showToast('🏆 Nieuw PR: ' + newPRs.join(', ') + '!');
+  else showToast('✓ ' + sessionData.workout.naam + ' opgeslagen!');
+  setActiveSession(null);
+};
+
+const handleSaveQuickAdd = async (date, exercises) => {
   const history = await dbGet('ct_workout_history', {});
   const dayEntries = history[date] || [];
   dayEntries.push({
@@ -1910,7 +1930,8 @@ function App() {
   else showToast('✓ Workout toegevoegd!');
   setShowQuickAdd(false);
 };
-  const handleGetCoachAdvice = async () => {
+
+const handleGetCoachAdvice = async () => {
   setCoachLoading(true); setCoachError(''); setCoachAdvice('');
   try {
     const history = await dbGet('ct_workout_history', {});
@@ -1940,25 +1961,6 @@ function App() {
   } finally {
     setCoachLoading(false);
   }
-};
-  const today = TODAY();
-  const history = await dbGet('ct_workout_history', {});
-  const dayEntries = history[today] || [];
-  dayEntries.push({
-    workoutId: sessionData.workout.id,
-    naam: sessionData.workout.naam,
-    timestamp: Date.now(),
-    exercises: sessionData.exercises
-  });
-  history[today] = dayEntries;
-  await dbSet('ct_workout_history', history);
-  const newPRs = await checkAndUpdatePRs(sessionData.exercises);
-  if (newPRs.length > 0) showToast('🏆 Nieuw PR: ' + newPRs.join(', ') + '!');
-  else showToast('✓ ' + sessionData.workout.naam + ' opgeslagen!');
-  setActiveSession(null);
-};
-    }))
-  });
 };
   const addCustomProduct = (product) => setCustomProducts(prev => [...prev, { ...product, id: Date.now() + Math.random() }]);
   const deleteCustomProduct = (id) => setCustomProducts(prev => prev.filter(p => p.id !== id));
