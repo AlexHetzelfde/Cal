@@ -1500,31 +1500,30 @@ function App() {
   });
 
   const addItems = (items, mealName) => {
-    if (mealName) {
-      const meal = createMealEntry(mealName, items);
-      setLog(p => [...p, meal]);
-    } else {
-      setLog(p => [...p, ...items.map(i => {
-        const qty = parseFloat(i.hoeveelheid) || 100;
-        const kcal = i.calorieën || 0;
-        const eiw = i.eiwitten || 0;
-        const kool = i.koolhydraten || 0;
-        const vet = i.vetten || 0;
-        return {
-          ...i,
-          id: Date.now() + Math.random(),
-          _per100g: {
-            kcal: (kcal / (qty / 100)) || 0,
-            eiwitten: (eiw / (qty / 100)) || 0,
-            koolhydraten: (kool / (qty / 100)) || 0,
-            vetten: (vet / (qty / 100)) || 0
-          },
-          _qty: qty
-        };
-      }));
-    }
-  };
-
+  if (mealName) {
+    const meal = createMealEntry(mealName, items);
+    setLog(p => [...p, meal]);
+  } else {
+    setLog(p => [...p, ...items.map(i => {
+      const qty = parseFloat(i.hoeveelheid) || 100;
+      const kcal = i.calorieën || 0;
+      const eiw = i.eiwitten || 0;
+      const kool = i.koolhydraten || 0;
+      const vet = i.vetten || 0;
+      return {
+        ...i,
+        id: Date.now() + Math.random(),
+        _per100g: {
+          kcal: (kcal / (qty / 100)) || 0,
+          eiwitten: (eiw / (qty / 100)) || 0,
+          koolhydraten: (kool / (qty / 100)) || 0,
+          vetten: (vet / (qty / 100)) || 0
+        },
+        _qty: qty
+      };
+    })]);
+  }
+};
   const removeLogItem = (id) => {
     const item = log.find(e => e.id === id);
     if (!item) return;
