@@ -1241,9 +1241,9 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
           <div class="card" style="margin-bottom:12px">
             <div class="section-label">✦ Beschrijven met AI</div>
             <div style="display:flex;gap:8px">
-              <div style="position:relative;flex:1">
+                            <div style="position:relative;flex:1">
                 <input value=${aiQuery} onInput=${e=>setAiQuery(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="width:100%;padding-right:${aiQuery?'32px':'12px'}"/>
-                onClick=${()=>{setAiQuery('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
+                ${aiQuery && html`<button onClick=${()=>{setAiQuery('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
               </div>
               <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer">${aiLoading?'Schatten…':'Schat'}</button>
             </div>
