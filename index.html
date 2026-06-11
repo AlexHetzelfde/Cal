@@ -160,7 +160,7 @@ async function dbGet(key, fallback) {
           if (req.result !== undefined) resolve(req.result); 
           else resolve(fallback); 
         };
-        req.onerror = () => resolve(fallback); // vang fout op en gebruik fallback
+        req.onerror = () => resolve(fallback);
       } catch {
         resolve(fallback);
       }
@@ -536,15 +536,12 @@ function useModalBehavior(onClose) {
   const [dragOffset, setDragOffset] = useState(0);
   const touchStartY = useRef(null);
   const dragRef = useRef(0);
-
   const handleClose = () => { setClosing(true); setTimeout(onClose, 280); };
-
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') { setClosing(true); setTimeout(onClose, 280); } };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
-
   const onTouchStart = (e) => { touchStartY.current = e.touches[0].clientY; dragRef.current = 0; };
   const onTouchMove = (e) => {
     if (touchStartY.current === null) return;
@@ -556,18 +553,14 @@ function useModalBehavior(onClose) {
     else setDragOffset(0);
     touchStartY.current = null; dragRef.current = 0;
   };
-
   return {
-    closing,
-    handleClose,
-    dragOffset,
+    closing, handleClose, dragOffset,
     backdropClass: 'modal-backdrop' + (closing ? ' backdrop-out' : ''),
     sheetClass: 'modal-sheet ' + (closing ? 'slide-down' : 'slide-up'),
     sheetStyle: dragOffset > 0 ? { transform: `translateY(${dragOffset}px)` } : {},
     touchHandlers: { onTouchStart, onTouchMove, onTouchEnd }
   };
 }
-
 // ── EmptyState ────────────────────────────────────────────────────────────────
 function EmptyState({ icon, title, sub }) {
   return html`
@@ -586,32 +579,23 @@ function FavoriteItem({ fav, onToggleFavorite, onSelect }) {
   const p100 = Math.round(n['proteins_100g'] || 0);
   const k100 = Math.round(n['carbohydrates_100g'] || 0);
   const v100 = Math.round(n['fat_100g'] || 0);
-
   const handleHeart = (e) => {
     e.stopPropagation();
     setHeartAnim('heart-shrink');
-    setTimeout(() => {
-      onToggleFavorite(fav);
-      setHeartAnim('');
-    }, 280);
+    setTimeout(() => { onToggleFavorite(fav); setHeartAnim(''); }, 280);
   };
-
   return html`
     <div style="display:flex;align-items:center;gap:10px;padding:9px 0;">
       <div style="width:36px;height:36px;border-radius:10px;background:#b872721a;border:1px solid #b8727230;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px;color:var(--danger)">♥</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fav.product_name}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">
-          ${kcal100} kcal · E ${p100}g · K ${k100}g · V ${v100}g
-        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${kcal100} kcal · E ${p100}g · K ${k100}g · V ${v100}g</div>
         ${fav.brands && html`<div style="font-size:10px;color:var(--dim);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fav.brands}</div>`}
       </div>
       <button onClick=${() => onSelect(fav)}
         style="flex-shrink:0;background:#b872721a;color:var(--danger);border:1px solid #b8727230;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
         onMouseOver=${e => { e.currentTarget.style.background='var(--danger)'; e.currentTarget.style.color='var(--bg)'; }}
-        onMouseOut=${e => { e.currentTarget.style.background='#b872721a'; e.currentTarget.style.color='var(--danger)'; }}>
-        + Log
-      </button>
+        onMouseOut=${e => { e.currentTarget.style.background='#b872721a'; e.currentTarget.style.color='var(--danger)'; }}>+ Log</button>
       <button onClick=${handleHeart}
         class=${heartAnim}
         aria-label="Verwijder uit favorieten"
@@ -639,7 +623,7 @@ function Ring({ value, goal, label, color }) {
         <text x="34" y="31" text-anchor="middle" fill="#eeeeec" font-size=${valFontSize} font-weight="600" font-family="'JetBrains Mono',monospace">${displayVal}</text>
         <text x="34" y="45" text-anchor="middle" fill="${over?'#b87272':'#555'}" font-size="10" font-family="'JetBrains Mono',monospace">/${Math.round(safeGoal)}</text>
       </svg>
-      <div style="font-size:10px;color:var(--muted);margin-top:-3px">${label}</div>
+      <div style="font-size:10px;color:${over?'var(--danger)':'var(--muted)'};margin-top:-3px">${label}</div>
       ${over && html`<div style="font-size:9px;color:var(--danger);font-family:'JetBrains Mono',monospace;margin-top:1px">+${Math.round(value - goal)}g</div>`}
     </div>`;
 }
@@ -707,17 +691,12 @@ function LogCard({ item, onRemove, onEdit, removable = true }) {
             class="field mono" style="width:80px;padding:7px 10px;text-align:center;font-size:16px;font-weight:700;flex-shrink:0"/>
           <span style="font-size:12px;color:var(--muted)">g</span>
           <button onClick=${handleSaveEdit}
-            style="flex:1;background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer">
-            Opslaan
-          </button>
+            style="flex:1;background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer">Opslaan</button>
           <button onClick=${() => setEditing(false)}
-            style="flex-shrink:0;background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:8px 10px;font-size:12px;cursor:pointer">
-            Annuleer
-          </button>
+            style="flex-shrink:0;background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:8px 10px;font-size:12px;cursor:pointer">Annuleer</button>
         </div>`}
     </div>`;
 }
-
 function MealLogCard({ meal, onRemove }) {
   const [open, setOpen] = useState(false);
   const totals = meal.items.reduce((a, i) => ({ calorieën: a.calorieën+(i.calorieën||0), eiwitten: a.eiwitten+(i.eiwitten||0), koolhydraten: a.koolhydraten+(i.koolhydraten||0), vetten: a.vetten+(i.vetten||0) }), { calorieën:0, eiwitten:0, koolhydraten:0, vetten:0 });
@@ -801,9 +780,7 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
             <button onClick=${() => setQty(servingGrams)}
               style="display:inline-flex;align-items:center;gap:5px;background:#85b0981a;border:1px solid #85b09840;border-radius:8px;color:var(--p);font-size:11px;padding:5px 10px;cursor:pointer;margin-bottom:12px;transition:background .15s"
               onMouseOver=${e=>e.currentTarget.style.background='#85b09830'}
-              onMouseOut=${e=>e.currentTarget.style.background='#85b0981a'}>
-              ↗ ${servingLabel}
-            </button>`}
+              onMouseOut=${e=>e.currentTarget.style.background='#85b0981a'}>↗ ${servingLabel}</button>`}
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">
             <input type="number" value=${qty} onInput=${e=>setQty(Math.max(1,Number(e.target.value)||1))} min="1" class="mono field" style="width:84px;padding:9px 10px;text-align:center;font-size:18px;font-weight:700;flex-shrink:0"/>
             <span style="font-size:12px;color:var(--muted);flex-shrink:0">g / ml</span>
@@ -836,6 +813,12 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, f
   const displayedResults = showAll ? results : results.slice(0, 20);
   const toggle = (idx) => setExpandedIdx(prev => prev === idx ? null : idx);
   const { closing, handleClose, backdropClass, sheetClass, sheetStyle, touchHandlers } = useModalBehavior(onClose);
+  const scrollRef = useRef(null);
+
+  const handleShowAll = () => {
+    setShowAll(true);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  };
 
   return html`
     <div class=${backdropClass} onClick=${e => e.target === e.currentTarget && handleClose()}>
@@ -859,7 +842,7 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, f
           </button>
         </div>
         <div style="border-top:1px solid var(--border)"/>
-        <div style="overflow-y:auto;padding:12px 16px 24px;flex:1">
+        <div ref=${scrollRef} style="overflow-y:auto;padding:12px 16px 24px;flex:1">
           ${results.length === 0 && !offError && html`<${EmptyState} icon="🔍" title="Geen producten gevonden"/>`}
           ${offError && html`<div style="color:var(--danger);font-size:12px;margin-bottom:12px;padding:9px 11px;background:#b8727215;border:1px solid #b8727230;border-radius:8px;line-height:1.5">${offError}</div>`}
           ${displayedResults.map(({ product, qty }, idx) => html`
@@ -876,7 +859,7 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, f
               />
             </div>`)}
           ${!showAll && results.length > 20 && html`
-            <button onClick=${() => setShowAll(true)}
+            <button onClick=${handleShowAll}
               style="width:100%;padding:10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;color:var(--muted);font-size:12px;cursor:pointer;margin-top:4px;transition:all .15s"
               onMouseOver=${e=>{e.currentTarget.style.borderColor='var(--text)';e.currentTarget.style.color='var(--text)'}}
               onMouseOut=${e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--muted)'}}>
@@ -886,7 +869,6 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, f
       </div>
     </div>`;
 }
-
 // ── BarcodeScanner ────────────────────────────────────────────────────────────
 function BarcodeScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
@@ -945,9 +927,7 @@ function AddCustomExerciseModal({ onClose, onSave }) {
   const fileRef = useRef(null);
   const inputRef = useRef(null);
   const { closing, handleClose, backdropClass, sheetClass, sheetStyle, touchHandlers } = useModalBehavior(onClose);
-
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 120); }, []);
-
   const handleFile = async (e) => {
     const file = e.target.files[0]; if (!file) return;
     setLoading(true);
@@ -1006,7 +986,6 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
   const [zoeken, setZoeken] = useState(false);
   const inputRef = useRef(null);
   const { closing, handleClose, backdropClass, sheetClass, sheetStyle, touchHandlers } = useModalBehavior(onClose);
-
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 120); }, []);
   useEffect(() => {
     if (editWorkout) {
@@ -1014,7 +993,6 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
       setOefeningen(editWorkout.oefeningen.map((oe, idx) => ({ ...oe, id: Date.now() + idx + Math.random() })));
     }
   }, [editWorkout]);
-
   const handleZoek = async () => {
     if (!zoekterm.trim()) return;
     setZoeken(true); setZoekresultaten([]);
@@ -1092,7 +1070,6 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
       </div>
     </div>`;
 }
-
 // ── WorkoutCard ───────────────────────────────────────────────────────────────
 function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analysisError }) {
   const [open, setOpen] = useState(false);
@@ -1149,7 +1126,7 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analys
 }
 
 // ── MealBuilderModal ──────────────────────────────────────────────────────────
-function MealBuilderModal({ onClose, onSave, onRequest }) {
+function MealBuilderModal({ onClose, onSave, onRequest, favorites = [], onToggleFavorite = null }) {
   const [name, setName] = useState('');
   const [items, setItems] = useState([]);
   const [offQuery, setOffQuery] = useState('');
@@ -1170,9 +1147,14 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
 
   const addItem = (product, qty) => {
     const n = product.nutriments, f = qty / 100;
-    setItems(p => [...p, { naam: product.product_name, hoeveelheid: `${qty}g`, calorieën: getKcal100g(n)*f, eiwitten: (n['proteins_100g']||0)*f, koolhydraten: (n['carbohydrates_100g']||0)*f, vetten: (n['fat_100g']||0)*f, id: Date.now()+Math.random() }]);
+    setItems(p => [...p, {
+      naam: product.product_name, hoeveelheid: `${qty}g`,
+      calorieën: getKcal100g(n)*f, eiwitten: (n['proteins_100g']||0)*f, koolhydraten: (n['carbohydrates_100g']||0)*f, vetten: (n['fat_100g']||0)*f,
+      id: Date.now()+Math.random()
+    }]);
     setShowSearchModal(false); setOffResults([]); setOffError('');
   };
+
   const handleOFFSearch = async () => {
     const q = offQuery.trim();
     if (!q || offLoading) return;
@@ -1199,6 +1181,7 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
     } catch(e) { if (e.name==='AbortError') return; setOffError('Fout: '+(e.message||'Probeer opnieuw.')); setShowSearchModal(true); }
     finally { setOffLoading(false); setOffPhaseMsg(''); }
   };
+
   const handleAISearch = async (overrideQuery) => {
     const q = (overrideQuery !== undefined ? overrideQuery : aiQuery).trim();
     setAiLoading(true); setAiError('');
@@ -1210,6 +1193,7 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
     } catch(e) { setAiError('Fout: '+(e.message||'Probeer opnieuw.')); }
     finally { setAiLoading(false); }
   };
+
   const handleSave = () => {
     if (!name.trim() || items.length === 0) return;
     onSave({ naam: name.trim(), items: items.map(({ id, ...rest }) => rest) });
@@ -1217,6 +1201,7 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
   };
   const removeItem = (id) => setItems(p => p.filter(i => i.id !== id));
   const totals = items.reduce((a, i) => ({ calorieën: a.calorieën+i.calorieën, eiwitten: a.eiwitten+i.eiwitten, koolhydraten: a.koolhydraten+i.koolhydraten, vetten: a.vetten+i.vetten }), { calorieën:0, eiwitten:0, koolhydraten:0, vetten:0 });
+
   return html`
     <div class=${backdropClass} onClick=${e=>e.target===e.currentTarget&&handleClose()}>
       <div class=${sheetClass} style=${{ maxHeight:'90vh', ...sheetStyle }} ...${touchHandlers}>
@@ -1241,11 +1226,11 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
           <div class="card" style="margin-bottom:12px">
             <div class="section-label">✦ Beschrijven met AI</div>
             <div style="display:flex;gap:8px">
-                            <div style="position:relative;flex:1">
+              <div style="position:relative;flex:1">
                 <input value=${aiQuery} onInput=${e=>setAiQuery(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="width:100%;padding-right:${aiQuery?'32px':'12px'}"/>
                 ${aiQuery && html`<button onClick=${()=>{setAiQuery('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
               </div>
-              <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer">${aiLoading?'Schatten…':'Schat'}</button>
+              <button onClick=${() => handleAISearch()} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer">${aiLoading?'Schatten…':'Schat'}</button>
             </div>
             ${aiLoading&&html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px"><div class="spinner" style="border-top-color:var(--f)"/><span style="font-size:12px;color:var(--muted)">AI schat voedingswaarden…</span></div>`}
             ${aiError&&html`<div style="color:var(--danger);font-size:12px;margin-top:8px">${aiError}</div>`}
@@ -1256,7 +1241,7 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
           `}
           <button onClick=${handleSave} disabled=${!name.trim()||items.length===0} class="btn" style="margin-top:8px;background:var(--p)">💾 Maaltijd opslaan</button>
         </div>
-        ${showSearchModal&&html`<${SearchModal} results=${offResults} query=${modalLabel||offQuery} offError=${offError} onClose=${()=>{setShowSearchModal(false);setOffResults([]);setOffError('');}} onAdd=${addItem} onAIEstimate=${()=>{setAiQuery(modalLabel||offQuery);setShowSearchModal(false);setOffResults([]);setOffError('');}}/>`}
+        ${showSearchModal&&html`<${SearchModal} results=${offResults} query=${modalLabel||offQuery} offError=${offError} onClose=${()=>{setShowSearchModal(false);setOffResults([]);setOffError('');}} onAdd=${addItem} onAIEstimate=${()=>{setAiQuery(modalLabel||offQuery);setShowSearchModal(false);setOffResults([]);setOffError('');}} favorites=${favorites} onToggleFavorite=${onToggleFavorite} />`}
       </div>
     </div>`;
 }
@@ -1270,9 +1255,7 @@ function AddProductModal({ onClose, onSave }) {
   const [vet, setVet] = useState('');
   const inputRef = useRef(null);
   const { closing, handleClose, backdropClass, sheetClass, sheetStyle, touchHandlers } = useModalBehavior(onClose);
-
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 120); }, []);
-
   const handleSave = () => {
     if (!naam.trim() || isNaN(parseFloat(kcal)) || isNaN(parseFloat(eiwit)) || isNaN(parseFloat(koolh)) || isNaN(parseFloat(vet))) return;
     onSave({ naam: naam.trim(), calorieën: parseFloat(kcal), eiwitten: parseFloat(eiwit), koolhydraten: parseFloat(koolh), vetten: parseFloat(vet) });
@@ -1297,13 +1280,23 @@ function AddProductModal({ onClose, onSave }) {
       </div>
     </div>`;
 }
-
 // ── NutritionChart ────────────────────────────────────────────────────────────
 function NutritionChart({ calorieGoal = 2000 }) {
   const [history, setHistory] = useState({});
   useEffect(() => { dbGet('ct_food_history', {}).then(setHistory); }, []);
   const dates = Object.keys(history).sort().slice(-7);
-  const calorieData = dates.map(d => (history[d] || []).reduce((sum, i) => sum + (i.calorieën || 0), 0));
+  const calorieData = dates.map(d => {
+    const items = history[d] || [];
+    let total = 0;
+    for (const item of items) {
+      if (item.isMeal && item.items) {
+        total += item.items.reduce((s, i) => s + (i.calorieën || 0), 0);
+      } else {
+        total += item.calorieën || 0;
+      }
+    }
+    return total;
+  });
   const maxCal = Math.max(...calorieData, calorieGoal, 1);
   const goalPct = (calorieGoal / maxCal) * 100;
   return html`
@@ -1398,25 +1391,6 @@ function App() {
   const [customExercises, setCustomExercises] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState('');
-    useEffect(() => {
-    Promise.all([
-      loadWorkouts(),
-      loadCustomExercises(),
-      loadPresets(),
-      dbGet('ct_custom_products', []),
-      loadFavorites(),
-    ]).then(([w, ex, pr, cp, favs]) => {
-      setWorkouts(w);
-      setCustomExercises(ex);
-      setPresets(pr);
-      setCustomProducts(cp);
-      setFavorites(favs);
-      setIsLoading(false);
-    }).catch(() => {
-      // Mocht er onverhoopt een fout optreden, stop dan met laden
-      setIsLoading(false);
-    });
-  }, []);
 
   const [favorites, setFavorites] = useState([]);
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
@@ -1441,6 +1415,27 @@ function App() {
     toastTimeout.current = setTimeout(() => setToast(''), 2500);
   };
 
+  useEffect(() => {
+    Promise.all([
+      loadWorkouts(),
+      loadCustomExercises(),
+      loadPresets(),
+      dbGet('ct_custom_products', []),
+      loadFavorites(),
+    ]).then(([w, ex, pr, cp, favs]) => {
+      setWorkouts(w);
+      setCustomExercises(ex);
+      setPresets(pr);
+      setCustomProducts(cp);
+      setFavorites(favs);
+      setIsLoading(false);
+    }).catch(() => {
+      setIsLoading(false);
+    });
+  }, []);
+
+  useEffect(() => { workoutsRef.current = workouts; }, [workouts]);
+
   useEffect(() => { saveLog(log); }, [log]);
   useEffect(() => { jset('ct_maxResults', maxResults); }, [maxResults]);
   useEffect(() => { dbSet('ct_custom_products', customProducts); }, [customProducts]);
@@ -1464,8 +1459,7 @@ function App() {
     window.addEventListener('scroll', handler, { passive: true });
     return () => window.removeEventListener('scroll', handler);
   }, []);
-
-  const handleFileUpload = (e) => {
+    const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -1510,7 +1504,24 @@ function App() {
       const meal = createMealEntry(mealName, items);
       setLog(p => [...p, meal]);
     } else {
-      setLog(p => [...p, ...items.map(i => ({ ...i, id: Date.now() + Math.random() }))]);
+      setLog(p => [...p, ...items.map(i => {
+        const qty = parseFloat(i.hoeveelheid) || 100;
+        const kcal = i.calorieën || 0;
+        const eiw = i.eiwitten || 0;
+        const kool = i.koolhydraten || 0;
+        const vet = i.vetten || 0;
+        return {
+          ...i,
+          id: Date.now() + Math.random(),
+          _per100g: {
+            kcal: (kcal / (qty / 100)) || 0,
+            eiwitten: (eiw / (qty / 100)) || 0,
+            koolhydraten: (kool / (qty / 100)) || 0,
+            vetten: (vet / (qty / 100)) || 0
+          },
+          _qty: qty
+        };
+      }));
     }
   };
 
@@ -1776,11 +1787,10 @@ Geen uitleg.`;
       return updated;
     });
   };
-
   return html`<div>
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
     ${showWorkoutBuilder && html`<${WorkoutBuilder} customExercises=${customExercises} editWorkout=${editingWorkout} onClose=${() => { setShowWorkoutBuilder(false); setEditingWorkout(null); }} onSave=${handleSaveWorkout}/>`}
-    ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)}/>`}
+    ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)} favorites=${favorites} onToggleFavorite=${toggleFavorite}/>`}
     ${showAddProduct && html`<${AddProductModal} onClose=${() => setShowAddProduct(false)} onSave=${addCustomProduct}/>`}
     ${showAddExercise && html`<${AddCustomExerciseModal} onClose=${() => setShowAddExercise(false)} onSave=${handleSaveCustomExercise}/>`}
     ${toast && html`<div style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:var(--p);color:var(--bg);padding:10px 22px;border-radius:20px;font-size:13px;font-weight:700;z-index:200;white-space:nowrap;box-shadow:0 4px 24px rgba(0,0,0,.4);animation:fadeUp .2s ease;pointer-events:none">${toast}</div>`}
@@ -1879,9 +1889,9 @@ Geen uitleg.`;
             <button class="icon-btn" onClick=${() => fileInputRef.current.click()} title="Foto toevoegen" style="flex-shrink:0">📷</button>
             <div style="position:relative;flex:1">
               <input ref=${aiInputRef} value=${aiQuery} onInput=${e=>{ setAiQuery(e.target.value); if(aiBericht||aiError){ setAiBericht(''); setAiError(''); } }} onKeyDown=${e=>e.key==='Enter'&&handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="width:100%;padding-right:${aiQuery?'32px':'12px'}"/>
-              ${aiQuery && html`<button onClick=${()=>{setAiQuery('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
+              ${aiQuery && html`<button onClick=${()=>{setAiQuery('');setAiBericht('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
             </div>
-            <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${aiLoading||!aiQuery.trim()?'.3':'1'};white-space:nowrap">
+            <button onClick=${() => handleAISearch()} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${aiLoading||!aiQuery.trim()?'.3':'1'};white-space:nowrap">
               ${aiLoading ? 'Schatten…' : 'Schat'}
             </button>
           </div>
@@ -1991,7 +2001,7 @@ Geen uitleg.`;
               <div class="mono" style="font-size:11px;color:var(--muted)">${Math.round(totals.calorieën)} kcal</div>
             </div>
             ${[...log].reverse().map(entry => entry.isMeal
-              ? html`<${MealLogCard} key=${entry.id} meal=${entry} onRemove=${(id) => setLog(p => p.filter(e => e.id !== id))} />`
+              ? html`<${MealLogCard} key=${entry.id} meal=${entry} onRemove=${(id) => removeLogItem(id)} />`
               : html`<${LogCard} key=${entry.id} item=${entry} onRemove=${() => removeLogItem(entry.id)} onEdit=${editLogItem} />`)}
           </div>`}
         ${log.length===0 && html`
@@ -2150,7 +2160,7 @@ Geen uitleg.`;
           <button onClick=${() => setProgressView('voeding')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='voeding'?'var(--p)':'var(--border)'};background:${progressView==='voeding'?'var(--p)':'transparent'};color:${progressView==='voeding'?'var(--bg)':'var(--muted)'}">Voeding</button>
           <button onClick=${() => setProgressView('gym')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='gym'?'var(--c)':'var(--border)'};background:${progressView==='gym'?'var(--c)':'transparent'};color:${progressView==='gym'?'var(--bg)':'var(--muted)'}">Gym</button>
         </div>
-        ${progressView==='voeding' && html`<${NutritionChart}/>`}
+        ${progressView==='voeding' && html`<${NutritionChart} calorieGoal=${goals.calorieën}/>`}
         ${progressView==='gym' && html`<${GymChart} workouts=${workouts}/>`}
       </div>
     </div>
