@@ -211,6 +211,8 @@ const saveSearchPref = async (query, product) => {
   await dbSet('ct_search_prefs', prefs);
 };
 const loadFavorites  = () => dbGet('ct_favorites', []);
+const loadPRs = () => dbGet('ct_prs', {});
+const savePRs = (prs) => dbSet('ct_prs', prs);
 const saveFavorites  = (favs) => dbSet('ct_favorites', favs);
 
 // ── Image resize ──────────────────────────────────────────────────────────────
@@ -253,6 +255,11 @@ function parseServingSize(raw) {
 const NUTRITION_SYSTEM = `Je bent een voedingsdeskundige. Geef ALLEEN het volgende JSON‑formaat, zonder uitleg:
 {"items":[{"naam":"naam","hoeveelheid":"bijv. 200g","calorieën":0,"eiwitten":0,"koolhydraten":0,"vetten":0}],"bericht":"kort Nederlands bericht"}
 Gebruik realistische gemiddelde portiewaarden. GEEN andere tekst.`;
+
+const COACH_SYSTEM = `Je bent een ervaren sportcoach en bewegingswetenschapper. 
+Analyseer de onderstaande workout-data van de afgelopen maand en geef concreet, 
+persoonlijk advies. Kijk naar: trainingsfrequentie, herstel, spiergroepbalans, 
+progressie en PR's. Spreek de gebruiker direct aan. Max 200 woorden. Geen JSON, gewone tekst.`;
 
 // ── Gemini ────────────────────────────────────────────────────────────────────
 const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
@@ -369,8 +376,10 @@ const timedFetch = (url, signal, ms = 20000) => {
 };
 
 const getKcal100g = (n) => n['energy-kcal_100g'] ?? (n['energy_100g'] != null ? n['energy_100g'] / 4.184 : 0);
-const getProductImage = (p) => p?.image_front_small_url || p?.image_small_url || p?.image_front_thumb_url || p?.image || null;
-
+const getProductImage = (p, large = false) => {
+  if (large) return p?.image_front_url || p?.image_front_small_url || p?.image_small_url || p?.image_front_thumb_url || null;
+  return p?.image_front_small_url || p?.image_small_url || p?.image_front_thumb_url || null;
+};
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 const CF_USAGE_KEY = 'ct_cf_usage';
 const getCFUsage = () => { try { const data = JSON.parse(localStorage.getItem(CF_USAGE_KEY) || '{}'); if (data.date !== TODAY()) return { date: TODAY(), count: 0 }; return data; } catch { return { date: TODAY(), count: 0 }; } };
@@ -455,7 +464,7 @@ const searchALicious = async (q, signal, size = 100, onRequest, onCacheHit) => {
   const fetchSearch = async (term, relevance = false) => {
     if (signal?.aborted) return [];
     const sort = relevance ? '' : '&sort_by=unique_scans_n';
-    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code,image_front_small_url,image_small_url&page_size=${size}${sort}&fuzziness=1&langs=nl,en,fr`;
+    const url = `https://off-proxy.mightygamer500.workers.dev/search?q=${encodeURIComponent(term)}&fields=product_name,product_name_nl,brands,nutriments,serving_size,unique_scans_n,code,image_front_small_url,image_small_url,image_front_thumb_url,image_front_url&page_size=${size}${sort}&fuzziness=1&langs=nl,en,fr`;
     try {
       const res = await timedFetch(url, signal, 6000);
       if (!res.ok) return [];
@@ -509,7 +518,7 @@ const offBarcode = async (barcode, signal) => {
     try {
       const url = version === 'v0'
         ? `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`
-        : `https://world.openfoodfacts.org/api/${version}/product/${barcode}?fields=product_name,brands,nutriments,serving_size,image_front_small_url,image_small_url`;
+        : `https://world.openfoodfacts.org/api/${version}/product/${barcode}?fields=product_name,brands,nutriments,serving_size,image_front_small_url,image_small_url,image_front_thumb_url,image_front_url`;
       const res = await timedFetch(url, signal, 8000);
       const data = await res.json();
       if (isValid(data)) return data.product;
@@ -765,7 +774,6 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
   return html`
     <div class=${'product-row' + (expanded ? ' expanded' : '')}>
       <div class="product-row-header" onClick=${onToggle}>
-        <${ProductThumb} src=${getProductImage(product)} size=40 />
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${product.product_name}</div>
           ${product.brands && html`<div style="font-size:11px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${product.brands}</div>`}
@@ -788,6 +796,11 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
         <div style="flex-shrink:0;color:#888888;font-size:14px;margin-left:2px;transition:transform .2s;transform:rotate(${expanded?'180':'0'}deg)">▾</div>
       </div>
       ${expanded && html`
+      ${getProductImage(product, true) && html`
+  <img src=${getProductImage(product, true)}
+    style="width:100%;max-height:180px;object-fit:contain;border-radius:10px;background:var(--s2);border:1px solid var(--border);margin-bottom:12px;padding:6px"
+    loading="lazy"
+  />`}
         <div class="product-row-body">
           ${servingLabel && html`
             <button onClick=${() => setQty(servingGrams)}
@@ -1084,7 +1097,7 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
     </div>`;
 }
 // ── WorkoutCard ───────────────────────────────────────────────────────────────
-function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analysisError }) {
+function WorkoutCard({ workout, onDelete, onEdit, onLog, onStartSession, loadingAnalysis, analysisError, prs = {} }) {
   const [open, setOpen] = useState(false);
   const [logDone, setLogDone] = useState(false);
 
@@ -1108,6 +1121,10 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analys
               <div style="flex:1">
                 <div style="font-size:13px;font-weight:600">${oe.naam}</div>
                 <div style="font-size:11px;color:var(--muted);margin-top:3px;font-family:'JetBrains Mono',monospace">${oe.sets} sets × ${oe.reps} reps</div>
+                ${prs[oe.naam?.toLowerCase().trim()] && html`
+  <div style="font-size:10px;color:#b89e72;margin-top:2px;font-family:'JetBrains Mono',monospace">
+    🏆 PR: ${prs[oe.naam.toLowerCase().trim()].weight}kg × ${prs[oe.naam.toLowerCase().trim()].reps} reps
+  </div>`}
                 ${oe.isCustom&&html`<div style="font-size:10px;color:var(--p);margin-top:2px">Eigen oefening</div>`}
               </div>
             </div>`)}
@@ -1130,10 +1147,16 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analys
                   </div>`;
               })}
             </div>`}
-          <button onClick=${e => { e.stopPropagation(); onLog(workout); setLogDone(true); setTimeout(() => setLogDone(false), 2000); }}
-            style="margin-top:12px;width:100%;background:${logDone?'var(--p)':'var(--c)'};color:var(--bg);border:none;border-radius:10px;padding:9px;font-weight:700;font-size:12px;cursor:pointer;transition:background .2s">
-            ${logDone ? '✓ Gelogd!' : '📌 Vandaag gedaan'}
-          </button>
+          <div style="display:flex;gap:8px;margin-top:12px">
+  <button onClick=${e => { e.stopPropagation(); onStartSession(workout); }}
+    style="flex:1;background:var(--p);color:var(--bg);border:none;border-radius:10px;padding:9px;font-weight:700;font-size:12px;cursor:pointer">
+    ▶ Doe deze workout
+  </button>
+  <button onClick=${e => { e.stopPropagation(); onLog(workout); setLogDone(true); setTimeout(() => setLogDone(false), 2000); }}
+    style="flex-shrink:0;background:${logDone ? 'var(--p)' : 'var(--s2)'};color:${logDone ? 'var(--bg)' : 'var(--muted)'};border:1px solid var(--border);border-radius:10px;padding:9px 14px;font-size:12px;cursor:pointer;transition:background .2s">
+    ${logDone ? '✓' : '📌'}
+  </button>
+</div>
         </div>`}
     </div>`;
 }
@@ -1369,9 +1392,213 @@ function GymChart({ workouts }) {
     </div>`;
 }
 
+  
+function QuickAddModal({ onClose, onSave }) {
+  const [date, setDate] = useState(TODAY());
+  const [exercises, setExercises] = useState([
+    { id: Date.now(), naam: '', sets: [{ weight: 0, reps: 10 }] }
+  ]);
+  const [saving, setSaving] = useState(false);
+  const { closing, handleClose, backdropClass, sheetClass, sheetStyle, touchHandlers } = useModalBehavior(onClose);
+
+  const updateName = (id, naam) =>
+    setExercises(prev => prev.map(e => e.id === id ? { ...e, naam } : e));
+
+  const addExercise = () =>
+    setExercises(prev => [...prev, { id: Date.now() + Math.random(), naam: '', sets: [{ weight: 0, reps: 10 }] }]);
+
+  const removeExercise = (id) =>
+    setExercises(prev => prev.filter(e => e.id !== id));
+
+  const addSet = (exId) =>
+    setExercises(prev => prev.map(e => e.id !== exId ? e : {
+      ...e, sets: [...e.sets, { weight: 0, reps: 10 }]
+    }));
+
+  const removeSet = (exId, setIdx) =>
+    setExercises(prev => prev.map(e => e.id !== exId || e.sets.length <= 1 ? e : {
+      ...e, sets: e.sets.filter((_, i) => i !== setIdx)
+    }));
+
+  const updateSet = (exId, setIdx, field, value) =>
+    setExercises(prev => prev.map(e => e.id !== exId ? e : {
+      ...e, sets: e.sets.map((s, i) => i !== setIdx ? s : { ...s, [field]: Number(value) || 0 })
+    }));
+
+  const canSave = exercises.some(e => e.naam.trim());
+
+  const handleSave = async () => {
+    if (!canSave || saving) return;
+    setSaving(true);
+    const filtered = exercises
+      .filter(e => e.naam.trim())
+      .map(({ id, ...rest }) => rest);
+    await onSave(date, filtered);
+  };
+
+  return html`
+    <div class=${backdropClass} onClick=${e => e.target === e.currentTarget && handleClose()}>
+      <div class=${sheetClass} style=${{ maxHeight: '90vh', ...sheetStyle }} ...${touchHandlers}>
+        <div class="drag-handle"/>
+        <div style="padding:12px 16px 10px;display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:700;font-size:16px">⚡ Workout achteraf toevoegen</div>
+          <button onClick=${handleClose} aria-label="Sluiten"
+            style="background:var(--s2);border:1px solid var(--border);color:var(--muted);width:36px;height:36px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
+        </div>
+        <div style="overflow-y:auto;flex:1;padding:0 16px 24px">
+          <div style="margin-bottom:16px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Datum</div>
+            <input type="date" value=${date} onInput=${e => setDate(e.target.value)}
+              class="field" style="font-size:14px;font-weight:600;color-scheme:dark"/>
+          </div>
+          ${exercises.map((ex, exIdx) => html`
+            <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                <input value=${ex.naam}
+                  onInput=${e => updateName(ex.id, e.target.value)}
+                  placeholder="Naam oefening (bijv. Bench press)"
+                  class="field" style="flex:1;font-weight:600"/>
+                ${exercises.length > 1 && html`
+                  <button onClick=${() => removeExercise(ex.id)}
+                    style="flex-shrink:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;transition:color .15s"
+                    onMouseOver=${e => e.currentTarget.style.color = 'var(--danger)'}
+                    onMouseOut=${e => e.currentTarget.style.color = 'var(--muted)'}>×</button>`}
+              </div>
+              <div style="display:flex;gap:8px;margin-bottom:6px">
+                <div style="flex:1;font-size:10px;color:var(--muted);text-align:center">Set</div>
+                <div style="flex:2;font-size:10px;color:var(--muted);text-align:center">Gewicht (kg)</div>
+                <div style="flex:2;font-size:10px;color:var(--muted);text-align:center">Reps</div>
+                <div style="width:32px"/>
+              </div>
+              ${ex.sets.map((set, setIdx) => html`
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                  <div style="flex:1;text-align:center;font-size:13px;font-weight:700;color:var(--dim);font-family:'JetBrains Mono',monospace">${setIdx + 1}</div>
+                  <input type="number" value=${set.weight} min="0" step="0.5"
+                    onInput=${e => updateSet(ex.id, setIdx, 'weight', e.target.value)}
+                    class="field mono" style="flex:2;padding:7px;text-align:center;font-size:14px;font-weight:700"/>
+                  <input type="number" value=${set.reps} min="0"
+                    onInput=${e => updateSet(ex.id, setIdx, 'reps', e.target.value)}
+                    class="field mono" style="flex:2;padding:7px;text-align:center;font-size:14px;font-weight:700"/>
+                  <button onClick=${() => removeSet(ex.id, setIdx)}
+                    style="width:32px;height:32px;flex-shrink:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:color .15s"
+                    onMouseOver=${e => e.currentTarget.style.color = 'var(--danger)'}
+                    onMouseOut=${e => e.currentTarget.style.color = 'var(--muted)'}>×</button>
+                </div>`)}
+              <button onClick=${() => addSet(ex.id)}
+                style="width:100%;background:transparent;border:1px dashed var(--border);border-radius:8px;color:var(--muted);padding:6px;font-size:12px;cursor:pointer;margin-top:4px;transition:all .15s"
+                onMouseOver=${e => { e.currentTarget.style.borderColor = 'var(--text)'; e.currentTarget.style.color = 'var(--text)'; }}
+                onMouseOut=${e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted)'; }}>
+                ＋ Set toevoegen
+              </button>
+            </div>`)}
+          <button onClick=${addExercise}
+            style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:10px;color:var(--muted);padding:9px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:14px;transition:all .15s"
+            onMouseOver=${e => { e.currentTarget.style.borderColor = 'var(--text)'; e.currentTarget.style.color = 'var(--text)'; }}
+            onMouseOut=${e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted)'; }}>
+            ＋ Oefening toevoegen
+          </button>
+          <button onClick=${handleSave} disabled=${!canSave || saving} class="btn" style="background:var(--p)">
+            ${saving ? 'Opslaan…' : '💾 Workout opslaan'}
+          </button>
+        </div>
+      </div>
+    </div>`;
+}  
+  
+function WorkoutSessionScreen({ session, onClose, onSave }) {
+  const [exercises, setExercises] = useState(session.exercises);
+  const [saving, setSaving] = useState(false);
+
+  const updateSet = (exIdx, setIdx, field, value) =>
+    setExercises(prev => prev.map((ex, i) => i !== exIdx ? ex : {
+      ...ex, sets: ex.sets.map((s, j) => j !== setIdx ? s : { ...s, [field]: Number(value) || 0 })
+    }));
+
+  const addSet = (exIdx) =>
+    setExercises(prev => prev.map((ex, i) => i !== exIdx ? ex : {
+      ...ex, sets: [...ex.sets, { reps: ex.reps || 10, weight: 0 }]
+    }));
+
+  const removeSet = (exIdx, setIdx) =>
+    setExercises(prev => prev.map((ex, i) => i !== exIdx || ex.sets.length <= 1 ? ex : {
+      ...ex, sets: ex.sets.filter((_, j) => j !== setIdx)
+    }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave({ ...session, exercises });
+  };
+
+  return html`
+    <div style="position:fixed;inset:0;z-index:80;background:var(--bg);display:flex;flex-direction:column;overflow:hidden" class="fade-up">
+      <div style="background:var(--s1);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div>
+          <div style="font-size:15px;font-weight:700">${session.workout.naam}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${exercises.length} oefeningen</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button onClick=${onClose}
+            style="background:var(--s2);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer">
+            Annuleer
+          </button>
+          <button onClick=${handleSave} disabled=${saving}
+            style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;opacity:${saving ? '.5' : '1'}">
+            ${saving ? 'Opslaan…' : '✓ Opslaan'}
+          </button>
+        </div>
+      </div>
+      <div style="overflow-y:auto;flex:1;padding:16px 14px 40px">
+        ${exercises.map((ex, exIdx) => html`
+          <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;margin-bottom:14px;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border)">
+              ${ex.image
+                ? html`<img src=${ex.image} style="width:52px;height:52px;object-fit:cover;border-radius:8px;flex-shrink:0;border:1px solid var(--border)"/>`
+                : html`<div style="width:52px;height:52px;border-radius:8px;background:var(--s2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">💪</div>`}
+              <div style="flex:1;min-width:0">
+                <div style="font-size:14px;font-weight:700">${ex.naam}</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px">${ex.sets.length} set${ex.sets.length !== 1 ? 's' : ''}</div>
+              </div>
+            </div>
+            <div style="padding:10px 14px">
+              <div style="display:flex;gap:8px;margin-bottom:8px">
+                <div style="flex:1;font-size:10px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:.05em">Set</div>
+                <div style="flex:2;font-size:10px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:.05em">Gewicht (kg)</div>
+                <div style="flex:2;font-size:10px;color:var(--muted);text-align:center;text-transform:uppercase;letter-spacing:.05em">Reps</div>
+                <div style="width:32px"/>
+              </div>
+              ${ex.sets.map((set, setIdx) => html`
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+                  <div style="flex:1;text-align:center;font-size:13px;font-weight:700;color:var(--muted);font-family:'JetBrains Mono',monospace">${setIdx + 1}</div>
+                  <input type="number" value=${set.weight} min="0" step="0.5"
+                    onInput=${e => updateSet(exIdx, setIdx, 'weight', e.target.value)}
+                    class="field mono" style="flex:2;padding:8px;text-align:center;font-size:15px;font-weight:700"/>
+                  <input type="number" value=${set.reps} min="0"
+                    onInput=${e => updateSet(exIdx, setIdx, 'reps', e.target.value)}
+                    class="field mono" style="flex:2;padding:8px;text-align:center;font-size:15px;font-weight:700"/>
+                  <button onClick=${() => removeSet(exIdx, setIdx)}
+                    style="width:32px;height:32px;flex-shrink:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:color .15s"
+                    onMouseOver=${e => e.currentTarget.style.color = 'var(--danger)'}
+                    onMouseOut=${e => e.currentTarget.style.color = 'var(--muted)'}>×</button>
+                </div>`)}
+              <button onClick=${() => addSet(exIdx)}
+                style="width:100%;background:var(--s2);border:1px dashed var(--border);border-radius:8px;color:var(--muted);padding:8px;font-size:12px;cursor:pointer;margin-top:4px;transition:all .15s"
+                onMouseOver=${e => { e.currentTarget.style.borderColor = 'var(--text)'; e.currentTarget.style.color = 'var(--text)'; }}
+                onMouseOut=${e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted)'; }}>
+                ＋ Set toevoegen
+              </button>
+            </div>
+          </div>`)}
+      </div>
+    </div>`;
+}
+  
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const [log, setLog] = useState(loadLog);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [coachAdvice, setCoachAdvice] = useState('');
+  const [coachLoading, setCoachLoading] = useState(false);
+  const [coachError, setCoachError] = useState('');
   const [goals, setGoals] = useState(() => jget('ct_goals', DEFAULT_GOALS));
   const [key, setKeyState] = useState(getKey);
   const [tab, setTab] = useState('add');
@@ -1407,9 +1634,11 @@ function App() {
   const [toast, setToast] = useState('');
 
   const [favorites, setFavorites] = useState([]);
+  const [prs, setPRs] = useState({});
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState(null);
   const [showAddExercise, setShowAddExercise] = useState(false);
+  const [activeSession, setActiveSession] = useState(null);
   const [progressView, setProgressView] = useState('voeding');
   const [analysisLoading, setAnalysisLoading] = useState({});
   const [analysisErrors, setAnalysisErrors] = useState({});
@@ -1431,21 +1660,23 @@ function App() {
 
   useEffect(() => {
     Promise.all([
-      loadWorkouts(),
-      loadCustomExercises(),
-      loadPresets(),
-      dbGet('ct_custom_products', []),
-      loadFavorites(),
-    ]).then(([w, ex, pr, cp, favs]) => {
-      setWorkouts(w);
-      setCustomExercises(ex);
-      setPresets(pr);
-      setCustomProducts(cp);
-      setFavorites(favs);
-      setIsLoading(false);
-    }).catch(() => {
-      setIsLoading(false);
-    });
+  loadWorkouts(),
+  loadCustomExercises(),
+  loadPresets(),
+  dbGet('ct_custom_products', []),
+  loadFavorites(),
+  loadPRs(),
+]).then(([w, ex, pr, cp, favs, loadedPRs]) => {
+  setWorkouts(w);
+  setCustomExercises(ex);
+  setPresets(pr);
+  setCustomProducts(cp);
+  setFavorites(favs);
+  setPRs(loadedPRs);
+  setIsLoading(false);
+}).catch(() => {
+  setIsLoading(false);
+});
   }, []);
 
   useEffect(() => { workoutsRef.current = workouts; }, [workouts]);
@@ -1631,6 +1862,104 @@ function App() {
     await dbSet('ct_workout_history', history);
     showToast('✓ ' + workout.naam + ' gelogd!');
   };
+
+  const checkAndUpdatePRs = async (exercises) => {
+  const currentPRs = await loadPRs();
+  const newPRNames = [];
+  for (const ex of exercises) {
+    if (!ex.naam) continue;
+    const key = ex.naam.toLowerCase().trim();
+    const bestSet = ex.sets.reduce((best, set) => {
+      const score = (set.weight || 0) * (set.reps || 1);
+      return score > best.score ? { ...set, score } : best;
+    }, { score: 0, weight: 0, reps: 0 });
+    const existing = currentPRs[key];
+    const isNewPR = !existing || bestSet.score > (existing.weight * existing.reps);
+    if (isNewPR && bestSet.score > 0) {
+      currentPRs[key] = { weight: bestSet.weight, reps: bestSet.reps, date: TODAY() };
+      newPRNames.push(ex.naam);
+    }
+  }
+  await savePRs(currentPRs);
+  setPRs(currentPRs);
+  return newPRNames;
+};
+  
+  const handleStartSession = (workout) => {
+  setActiveSession({
+    workout,
+    startTime: Date.now(),
+    exercises: workout.oefeningen.map(oe => ({
+      ...oe,
+      sets: [{ reps: oe.reps, weight: 0 }]
+
+  const handleSaveSession = async (sessionData) => {
+  const handleSaveQuickAdd = async (date, exercises) => {
+  const history = await dbGet('ct_workout_history', {});
+  const dayEntries = history[date] || [];
+  dayEntries.push({
+    workoutId: null,
+    naam: 'Handmatig toegevoegd',
+    timestamp: new Date(date).getTime(),
+    exercises
+  });
+  history[date] = dayEntries;
+  await dbSet('ct_workout_history', history);
+  const newPRs = await checkAndUpdatePRs(exercises);
+  if (newPRs.length > 0) showToast('🏆 Nieuw PR: ' + newPRs.join(', ') + '!');
+  else showToast('✓ Workout toegevoegd!');
+  setShowQuickAdd(false);
+};
+  const handleGetCoachAdvice = async () => {
+  setCoachLoading(true); setCoachError(''); setCoachAdvice('');
+  try {
+    const history = await dbGet('ct_workout_history', {});
+    const currentPRs = await loadPRs();
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const recentSessions = Object.entries(history)
+      .filter(([date]) => new Date(date).getTime() >= thirtyDaysAgo)
+      .flatMap(([date, entries]) => entries.map(e => ({ ...e, date })));
+    if (recentSessions.length === 0) {
+      setCoachError('Geen workout-data gevonden in de afgelopen maand.');
+      return;
+    }
+    const summary = recentSessions.map(s =>
+      `${s.date}: ${s.naam} — ${(s.exercises || []).map(e =>
+        `${e.naam} (${(e.sets || []).map(set => `${set.weight || 0}kg×${set.reps || 0}`).join(', ')})`
+      ).join('; ')}`
+    ).join('\n');
+    const prSummary = Object.entries(currentPRs).map(([naam, pr]) =>
+      `${naam}: ${pr.weight}kg × ${pr.reps} reps (${pr.date})`
+    ).join('\n');
+    const prompt = `Workouts afgelopen maand:\n${summary}\n\nPersoonlijke records:\n${prSummary}`;
+    const data = await callGemini(COACH_SYSTEM, prompt, 1000);
+    const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+    setCoachAdvice(text);
+  } catch (e) {
+    setCoachError('Fout: ' + (e.message || 'Probeer opnieuw.'));
+  } finally {
+    setCoachLoading(false);
+  }
+};
+  const today = TODAY();
+  const history = await dbGet('ct_workout_history', {});
+  const dayEntries = history[today] || [];
+  dayEntries.push({
+    workoutId: sessionData.workout.id,
+    naam: sessionData.workout.naam,
+    timestamp: Date.now(),
+    exercises: sessionData.exercises
+  });
+  history[today] = dayEntries;
+  await dbSet('ct_workout_history', history);
+  const newPRs = await checkAndUpdatePRs(sessionData.exercises);
+  if (newPRs.length > 0) showToast('🏆 Nieuw PR: ' + newPRs.join(', ') + '!');
+  else showToast('✓ ' + sessionData.workout.naam + ' opgeslagen!');
+  setActiveSession(null);
+};
+    }))
+  });
+};
   const addCustomProduct = (product) => setCustomProducts(prev => [...prev, { ...product, id: Date.now() + Math.random() }]);
   const deleteCustomProduct = (id) => setCustomProducts(prev => prev.filter(p => p.id !== id));
 
@@ -1804,6 +2133,14 @@ Geen uitleg.`;
   };
   return html`<div>
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
+    ${activeSession && html`<${WorkoutSessionScreen} ${showQuickAdd && html`<${QuickAddModal}
+  onClose=${() => setShowQuickAdd(false)}
+  onSave=${handleSaveQuickAdd}
+/>`}
+  session=${activeSession}
+  onClose=${() => setActiveSession(null)}
+  onSave=${handleSaveSession}
+/>`}
     ${showWorkoutBuilder && html`<${WorkoutBuilder} customExercises=${customExercises} editWorkout=${editingWorkout} onClose=${() => { setShowWorkoutBuilder(false); setEditingWorkout(null); }} onSave=${handleSaveWorkout}/>`}
     ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)} favorites=${favorites} onToggleFavorite=${toggleFavorite}/>`}
     ${showAddProduct && html`<${AddProductModal} onClose=${() => setShowAddProduct(false)} onSave=${addCustomProduct}/>`}
@@ -2038,7 +2375,12 @@ Geen uitleg.`;
       <div class="tab-content" style="display:${tab==='workout'?'block':'none'}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div style="font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">Mijn workouts</div>
-          <button onClick=${() => { setEditingWorkout(null); setShowWorkoutBuilder(true); }}
+<div style="display:flex;gap:8px">
+  <button onClick=${() => setShowQuickAdd(true)}
+    style="background:var(--s2);color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer">
+    ⚡ Achteraf
+  </button>
+  <button onClick=${() => { setEditingWorkout(null); setShowWorkoutBuilder(true); }}
             style="background:var(--p);color:var(--bg);border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s"
             onMouseOver=${e => e.currentTarget.style.opacity='.8'}
             onMouseOut=${e => e.currentTarget.style.opacity='1'}>
@@ -2054,7 +2396,17 @@ Geen uitleg.`;
               + Eerste workout aanmaken
             </button>
           </div>`}
-        ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout} onEdit=${(workout) => { setEditingWorkout(workout); setShowWorkoutBuilder(true); }} onLog=${handleLogWorkout} loadingAnalysis=${analysisLoading[w.id]} analysisError=${analysisErrors[w.id]} />`)}
+        ${workouts.map(w => html`<${WorkoutCard}
+  key=${w.id}
+  workout=${w}
+  onDelete=${handleDeleteWorkout}
+  onEdit=${(workout) => { setEditingWorkout(workout); setShowWorkoutBuilder(true); }}
+  onLog=${handleLogWorkout}
+  onStartSession=${handleStartSession}
+  prs=${prs}
+  loadingAnalysis=${analysisLoading[w.id]}
+  analysisError=${analysisErrors[w.id]}
+/>`)}
         <div class="card" style="margin-top:8px;border-top:2px solid #85b09835">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <div>
@@ -2177,6 +2529,28 @@ Geen uitleg.`;
         </div>
         ${progressView==='voeding' && html`<${NutritionChart} calorieGoal=${goals.calorieën}/>`}
         ${progressView==='gym' && html`<${GymChart} workouts=${workouts}/>`}
+        ${progressView === 'gym' && html`
+  <div class="card" style="margin-top:12px;border-top:2px solid #b89e7235">
+    <div class="section-label" style="color:var(--f)">✦ AI Coach advies</div>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:12px;line-height:1.6">
+      AI analyseert je workouts van de afgelopen maand en geeft persoonlijk advies.
+    </div>
+    <button onClick=${handleGetCoachAdvice} disabled=${coachLoading || !key}
+      style="width:100%;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;opacity:${coachLoading || !key ? '.3' : '1'}">
+      ${coachLoading ? 'Analyseren…' : '✦ Vraag advies aan AI Coach'}
+    </button>
+    ${!key && html`<div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center">Stel eerst een Gemini API key in via Instellingen</div>`}
+    ${coachLoading && html`
+      <div style="display:flex;align-items:center;gap:8px;margin-top:12px">
+        <div class="spinner" style="border-top-color:var(--f)"/>
+        <span style="font-size:12px;color:var(--muted)">AI analyseert je workouts…</span>
+      </div>`}
+    ${coachError && html`<div style="color:var(--danger);font-size:12px;margin-top:10px">${coachError}</div>`}
+    ${coachAdvice && html`
+      <div class="fade-up" style="margin-top:12px;padding:14px;background:var(--s2);border-radius:12px;border:1px solid #b89e7230;font-size:13px;color:var(--text);line-height:1.8">
+        <span style="color:var(--f);margin-right:6px">✦</span>${coachAdvice}
+      </div>`}
+  </div>`}
       </div>
     </div>
 
