@@ -138,7 +138,7 @@
 <body>
 <div id="app"></div>
 <script type="module">
-import { h, render } from 'https://esm.sh/preact@10.24.3';
+import { h, render, Component } from 'https://esm.sh/preact@10.24.3';
 import { useState, useEffect, useRef } from 'https://esm.sh/preact@10.24.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 const html = htm.bind(h);
@@ -202,7 +202,10 @@ async function migrateToIDB() {
     const raw = localStorage.getItem(key);
     if (raw) { try { await dbSet(key, JSON.parse(raw)); } catch {} localStorage.removeItem(key); }
   }
-  await dbSet('ct_food_history', {}); await dbSet('ct_workout_history', {});
+  const existingFoodHistory = await dbGet('ct_food_history', null);
+if (existingFoodHistory === null) await dbSet('ct_food_history', {});
+const existingWorkoutHistory = await dbGet('ct_workout_history', null);
+if (existingWorkoutHistory === null) await dbSet('ct_workout_history', {});
   localStorage.setItem(MIGRATED_KEY, '1');
 }
 migrateToIDB();
@@ -310,13 +313,22 @@ const parseGeminiJson = (data) => {
     clean = clean.slice(start, end + 1);
     try { return JSON.parse(clean); } catch {}
   }
-  if (start !== -1 && (end === -1 || end <= start)) {
-    let fixed = clean.slice(start);
-    if (fixed.endsWith('"')) fixed = fixed.slice(0, -1) + '"}';
-    else if (fixed.endsWith(',')) fixed = fixed.slice(0, -1);
-    if (!fixed.endsWith('}')) fixed += '}';
-    try { return JSON.parse(fixed); } catch {}
+  if (start !== -1) {
+  let partial = clean.slice(start).replace(/,\s*$/, '');
+  let openBrackets = 0, openBraces = 0, inString = false, escaped = false;
+  for (const char of partial) {
+    if (escaped) { escaped = false; continue; }
+    if (char === '\\' && inString) { escaped = true; continue; }
+    if (char === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (char === '[') openBrackets++;
+    else if (char === ']') openBrackets = Math.max(0, openBrackets - 1);
+    else if (char === '{') openBraces++;
+    else if (char === '}') openBraces = Math.max(0, openBraces - 1);
   }
+  let fixed = partial + ']'.repeat(openBrackets) + '}'.repeat(openBraces);
+  try { return JSON.parse(fixed); } catch {}
+}
   throw new Error('Geen geldige JSON ontvangen. Ruwe respons: ' + text);
 };
 
@@ -396,7 +408,12 @@ const NL_STOPWORDS = new Set(['de','het','een','van','met','en','of','in','op','
 const NL_EN = { walnoten:'walnuts', amandelen:'almonds', hazelnoten:'hazelnuts', cashewnoten:'cashews', pindas:'peanuts', rozijnen:'raisins', havermout:'oatmeal', kwark:'quark', melk:'milk', boter:'butter', kaas:'cheese', eieren:'eggs', kip:'chicken', rijst:'rice', brood:'bread', honing:'honey', suiker:'sugar', bloem:'flour', aardappelen:'potatoes', tomaten:'tomatoes', uien:'onions', wortelen:'carrots', spinazie:'spinach', zalm:'salmon', tonijn:'tuna', chocolade:'chocolate', noten:'nuts', spek:'bacon', worst:'sausage', yoghurt:'yogurt', karnemelk:'buttermilk', slagroom:'cream', vla:'custard', smeerkaas:'cream cheese', gehakt:'minced meat', kipfilet:'chicken breast', kalkoen:'turkey', varkensvlees:'pork', rundvlees:'beef', garnalen:'shrimp', makreel:'mackerel', haring:'herring', mosselen:'mussels', komkommer:'cucumber', paprika:'bell pepper', courgette:'zucchini', aubergine:'eggplant', bloemkool:'cauliflower', spruitjes:'brussels sprouts', appel:'apple', peer:'pear', aardbei:'strawberry', banaan:'banana', druiven:'grapes', citroen:'lemon', rogge:'rye', spelt:'spelt', muesli:'muesli', granola:'granola', pindakaas:'peanut butter', hagelslag:'chocolate sprinkles', mayonaise:'mayonnaise', mosterd:'mustard', olijfolie:'olive oil', linzen:'lentils', kikkererwten:'chickpeas', pompoen:'pumpkin' };
 const BRAND_ALIASES = { 'ah': 'albert heijn', 'deka': 'dekamarkt', 'dirk': 'dirk van den broek', 'plus': 'plus supermarkt' };
 
+const STEM_BLOCKLIST = new Set([
+  'chips', 'hummus', 'mais', 'ananas', 'status', 'basis', 'bonus', 'virus', 'campus'
+]);
+
 function stemNL(word) {
+  if (STEM_BLOCKLIST.has(word)) return word;
   const suffixes = ['tjes', 'jes', 'tje', 'en', 's'];
   for (const suffix of suffixes) { if (word.length > suffix.length + 3 && word.endsWith(suffix)) return word.slice(0, -suffix.length); }
   return word;
@@ -421,9 +438,12 @@ function scoreProduct(product, query) {
     else if (combined.includes(w) || (alias && combined.includes(alias))) { score += 10; treffers++; }
     else if (combinedNLCompact.includes(wCompact) || combinedCompact.includes(wCompact)) { score += 5; treffers++; }
   }
-  let minMatches = woorden.length <= 2 ? 1 : woorden.length <= 4 ? 2 : 3;
+  let minMatches;
+if (woorden.length === 1) minMatches = 1;
+else if (woorden.length <= 4) minMatches = 2;
+else minMatches = 3;
   if (treffers < minMatches) return -1;
-  const essentieleWoorden = woorden.filter(w => BRAND_ALIASES[w] || w.length > 4);
+  const essentieleWoorden = woorden.filter(w => BRAND_ALIASES[w] || w.length >= 4);
   const essentieleMatches = essentieleWoorden.filter(w => { const alias = BRAND_ALIASES[w]; return combined.includes(w) || combinedNL.includes(w) || (alias && (combined.includes(alias) || combinedNL.includes(alias))); }).length;
   if (essentieleWoorden.length > 0 && essentieleMatches === 0) return -1;
   score += Math.round((treffers / woorden.length) * 20);
@@ -1154,7 +1174,7 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
     finally { setOffLoading(false); setOffPhaseMsg(''); }
   };
   const handleAISearch = async (overrideQuery) => {
-    const q = (overrideQuery ?? aiQuery).trim();
+  const q = (overrideQuery !== undefined ? overrideQuery : aiQuery).trim();
     setAiLoading(true); setAiError('');
     try {
       const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
@@ -2000,6 +2020,11 @@ Geen uitleg.`;
           <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.4">Maximaal aantal producten dat wordt opgehaald uit de database.</div>
           <input type="number" value=${maxResults} onInput=${e => setMaxResults(Math.max(1, Math.min(200, Number(e.target.value) || 50)))} min="1" max="200" class="field mono" style="text-align:center;font-size:16px;font-weight:600"/>
           <div style="font-size:10px;color:var(--dim);margin-top:6px">Tussen 1 en 200 (standaard 50)</div>
+          <button class="btn"
+  onClick=${async () => { await dbSet('ct_search_prefs', {}); alert('Zoekvoorkeuren gereset.'); }}
+  style="margin-top:12px;background:var(--s2);color:var(--muted);border:1px solid var(--border)">
+  Zoekvoorkeuren resetten
+</button>
         </div>
 
         <div class="card">
@@ -2022,7 +2047,32 @@ Geen uitleg.`;
   </div>`;
 }
 
-render(html`<${App}/>`, document.getElementById('app'));
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return html`
+        <div style="padding:40px 20px;text-align:center">
+          <div style="font-size:30px;margin-bottom:12px">⚠</div>
+          <div style="font-size:14px;font-weight:600;color:var(--danger);margin-bottom:8px">Er is iets misgegaan</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:20px">${this.state.error?.message || 'Onbekende fout'}</div>
+          <button onClick=${() => window.location.reload()}
+            style="background:var(--text);color:var(--bg);border:none;border-radius:10px;padding:10px 20px;font-weight:700;cursor:pointer">
+            Pagina herladen
+          </button>
+        </div>`;
+    }
+    return this.props.children;
+  }
+}
+
+render(html`<${ErrorBoundary}><${App}/></${ErrorBoundary}>`, document.getElementById('app'));
 </script>
 </body>
 </html>
