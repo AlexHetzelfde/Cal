@@ -31,7 +31,6 @@
     }
     .mono { font-family: 'JetBrains Mono', monospace; }
     input, textarea, button, select { font-family: 'Outfit', sans-serif; }
-    /* #18 – Firefox spin buttons */
     input[type=number] { -moz-appearance: textfield; }
     input[type=number]::-webkit-inner-spin-button,
     input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
@@ -39,36 +38,26 @@
     ::-webkit-scrollbar { width: 3px; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-    /* ── Keyframes ── */
     @keyframes fadeUp     { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
     @keyframes spin       { to { transform: rotate(360deg); } }
-    /* #17 – scanline uses transform instead of top */
     @keyframes scanline   { 0%,100% { transform:translateY(0); } 50% { transform:translateY(220%); } }
     @keyframes slideUp    { from { transform: translateY(100%); } to { transform: translateY(0); } }
-    /* #24 – modal close animation */
     @keyframes slideDown  { from { transform: translateY(0); } to { transform: translateY(110%); } }
     @keyframes backdropIn  { from { opacity:0; } to { opacity:1; } }
-    /* #24 – backdrop fade out */
     @keyframes backdropOut { from { opacity:1; } to { opacity:0; } }
     @keyframes heartPop   { 0% { transform:scale(1); } 40% { transform:scale(1.4); } 70% { transform:scale(.9); } 100% { transform:scale(1); } }
-    /* #28 – heart shrink on remove */
     @keyframes heartShrink { 0% { transform:scale(1); } 40% { transform:scale(0.55); } 70% { transform:scale(1.15); } 100% { transform:scale(1); } }
-    /* #27 – logcard exit */
     @keyframes fadeOut {
       from { opacity:1; transform:translateX(0); max-height:120px; margin-bottom:8px; }
       to   { opacity:0; transform:translateX(28px); max-height:0; margin-bottom:0; padding-top:0; padding-bottom:0; }
     }
-    /* #26 – product row expand */
     @keyframes expandDown {
       from { max-height:0; opacity:0; }
       to   { max-height:900px; opacity:1; }
     }
-    /* #23 / #32 – tab & lib-tab fade */
     @keyframes tabFade { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
-    /* #30 – scanner checkmark entrance */
     @keyframes checkPop { 0% { transform:scale(0) rotate(-10deg); opacity:0; } 60% { transform:scale(1.2); } 100% { transform:scale(1); opacity:1; } }
 
-    /* ── Animation classes ── */
     .fade-up     { animation: fadeUp .2s ease; }
     .slide-up    { animation: slideUp .28s cubic-bezier(.32,.72,0,1); }
     .slide-down  { animation: slideDown .28s cubic-bezier(.32,.72,0,1) forwards; }
@@ -79,26 +68,22 @@
     .tab-content { animation: tabFade .2s ease; }
     .check-pop   { animation: checkPop .35s cubic-bezier(.17,.67,.35,1.2) both; }
 
-    /* ── Components ── */
     .card { background: var(--s1); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
     .field { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; color: var(--text); padding: 10px 12px; font-size: 13px; transition: border-color .2s; }
     .field:focus { border-color: var(--text); }
-    /* #21 – button press effect */
     .btn { width: 100%; background: var(--text); color: var(--bg); border: none; border-radius: 10px; padding: 11px; font-weight: 700; font-size: 13px; cursor: pointer; transition: opacity .15s, transform .1s; letter-spacing: .01em; }
     .btn:hover:not(:disabled) { opacity: .8; }
     .btn:active:not(:disabled) { transform: scale(0.97); }
     .btn:disabled { opacity: .25; cursor: default; }
     .btn.success { background: var(--p); color: var(--bg); }
-    .tab { flex: 1; background: none; border: none; border-bottom: 2px solid transparent; padding: 11px 4px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--muted); transition: all .15s; letter-spacing: .01em; }
-    .tab.on { color: var(--text); border-bottom-color: var(--text); }
-    /* #21 – tab press effect */
+    .tab { flex: 1; background: none; border: none; border-top: 2px solid transparent; padding: 11px 4px 13px; font-size: 12px; font-weight: 500; cursor: pointer; color: #888888; transition: all .15s; letter-spacing: .01em; }
+    .tab.on { color: var(--text); border-top-color: var(--text); }
     .tab:active { opacity: .7; }
     .logcard { background: var(--s1); border: 1px solid var(--border); border-radius: 12px; padding: 11px 13px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; animation: fadeUp .2s ease; }
     .tag { font-size: 10px; border-radius: 5px; padding: 2px 6px; font-family: 'JetBrains Mono', monospace; }
     .section-label { font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 8px; }
     a { color: var(--c); }
-    .divider { border: none; border-top: 1px solid var(--border); margin: 4px 0 16px; }
-    /* #16 – spinner has base border-top-color */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
     .spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--c); border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
     .scanner-overlay { position: fixed; inset: 0; z-index: 100; background: #000; display: flex; flex-direction: column; }
     .scanner-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%); width: 240px; height: 160px; pointer-events: none; }
@@ -108,30 +93,23 @@
     .scanner-frame-tr, .scanner-frame-bl { position: absolute; width: 30px; height: 30px; border-color: var(--p); border-style: solid; }
     .scanner-frame-tr { top:0;right:0;border-width:3px 3px 0 0;border-radius:0 4px 0 0; }
     .scanner-frame-bl { bottom:0;left:0;border-width:0 0 3px 3px;border-radius:0 0 0 4px; }
-    /* #17 – scanline positioned via transform, not top */
     .scanner-line { position: absolute; top: 10%; left: 4px; right: 4px; height: 2px; background: linear-gradient(90deg, transparent, var(--p), transparent); animation: scanline 2s ease-in-out infinite; }
-    /* #11 – unified pill classes */
     .pill { border-radius: 20px; padding: 5px 12px; font-size: 11px; cursor: pointer; transition: all .15s; font-family: 'JetBrains Mono', monospace; white-space: nowrap; line-height: 1; border: 1px solid; }
     .pill:active { transform: scale(0.95); }
     .pill-active  { background: var(--c); color: var(--bg); border-color: var(--c); }
     .pill-inactive { background: var(--s1); color: var(--muted); border-color: var(--border); }
     .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.65); backdrop-filter: blur(3px); animation: backdropIn .2s ease; }
-    /* #19 – modal min-height */
     .modal-sheet { position: fixed; bottom: 0; left: 0; right: 0; z-index: 51; background: var(--s1); border-radius: 20px 20px 0 0; border: 1px solid var(--border); border-bottom: none; max-height: 85vh; min-height: 30vh; display: flex; flex-direction: column; }
     .product-row { background: var(--s2); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 7px; overflow: hidden; transition: border-color .15s; }
     .product-row.expanded { border-color: var(--c); }
     .product-row-header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; user-select: none; }
     .product-row-header:active { background: rgba(255,255,255,.03); }
-    /* #26 – expandDown animation on body */
     .product-row-body { border-top: 1px solid var(--border); padding: 13px 14px; animation: expandDown .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
-    /* #2 – drag handle shows grab cursor to hint interactivity */
-    .drag-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 10px auto 0; cursor: grab; }
-    .icon-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; width: 42px; height: 42px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; flex-shrink: 0; }
+    .drag-handle { width: 36px; height: 4px; background: #3a3a3a; border-radius: 2px; margin: 10px auto 0; cursor: grab; }
+    .icon-btn { background: var(--s2); border: 1px solid #333333; color: #888888; border-radius: 10px; width: 42px; height: 42px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; flex-shrink: 0; }
     .icon-btn:hover { border-color: var(--text); color: var(--text); }
-    /* #21 – icon-btn press effect */
     .icon-btn:active { transform: scale(0.93); }
-    /* #3 – larger touch target for delete buttons */
-    .del-btn { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; background: none; border: none; color: var(--dim); cursor: pointer; font-size: 18px; line-height: 1; transition: color .15s; flex-shrink: 0; padding: 0; }
+    .del-btn { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; transition: color .15s; flex-shrink: 0; padding: 0; }
     .del-btn:hover { color: var(--danger); }
   </style>
 </head>
@@ -144,7 +122,6 @@ import htm from 'https://esm.sh/htm@3.1.1';
 const html = htm.bind(h);
 
 // ── Storage ───────────────────────────────────────────────────────────────────
-// #3 fix: use local timezone
 const TODAY = () => new Date().toLocaleDateString('en-CA');
 const jget = (k, fb) => { try { const v = localStorage.getItem(k); return v !== null ? JSON.parse(v) : fb; } catch { return fb; } };
 const jset = (k, v) => localStorage.setItem(k, JSON.stringify(v));
@@ -203,9 +180,9 @@ async function migrateToIDB() {
     if (raw) { try { await dbSet(key, JSON.parse(raw)); } catch {} localStorage.removeItem(key); }
   }
   const existingFoodHistory = await dbGet('ct_food_history', null);
-if (existingFoodHistory === null) await dbSet('ct_food_history', {});
-const existingWorkoutHistory = await dbGet('ct_workout_history', null);
-if (existingWorkoutHistory === null) await dbSet('ct_workout_history', {});
+  if (existingFoodHistory === null) await dbSet('ct_food_history', {});
+  const existingWorkoutHistory = await dbGet('ct_workout_history', null);
+  if (existingWorkoutHistory === null) await dbSet('ct_workout_history', {});
   localStorage.setItem(MIGRATED_KEY, '1');
 }
 migrateToIDB();
@@ -314,21 +291,21 @@ const parseGeminiJson = (data) => {
     try { return JSON.parse(clean); } catch {}
   }
   if (start !== -1) {
-  let partial = clean.slice(start).replace(/,\s*$/, '');
-  let openBrackets = 0, openBraces = 0, inString = false, escaped = false;
-  for (const char of partial) {
-    if (escaped) { escaped = false; continue; }
-    if (char === '\\' && inString) { escaped = true; continue; }
-    if (char === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (char === '[') openBrackets++;
-    else if (char === ']') openBrackets = Math.max(0, openBrackets - 1);
-    else if (char === '{') openBraces++;
-    else if (char === '}') openBraces = Math.max(0, openBraces - 1);
+    let partial = clean.slice(start).replace(/,\s*$/, '');
+    let openBrackets = 0, openBraces = 0, inString = false, escaped = false;
+    for (const char of partial) {
+      if (escaped) { escaped = false; continue; }
+      if (char === '\\' && inString) { escaped = true; continue; }
+      if (char === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (char === '[') openBrackets++;
+      else if (char === ']') openBrackets = Math.max(0, openBrackets - 1);
+      else if (char === '{') openBraces++;
+      else if (char === '}') openBraces = Math.max(0, openBraces - 1);
+    }
+    let fixed = partial + ']'.repeat(openBrackets) + '}'.repeat(openBraces);
+    try { return JSON.parse(fixed); } catch {}
   }
-  let fixed = partial + ']'.repeat(openBrackets) + '}'.repeat(openBraces);
-  try { return JSON.parse(fixed); } catch {}
-}
   throw new Error('Geen geldige JSON ontvangen. Ruwe respons: ' + text);
 };
 
@@ -405,8 +382,8 @@ const setCachedResults = async (term, results) => {
 };
 
 const NL_STOPWORDS = new Set(['de','het','een','van','met','en','of','in','op','voor','aan','bij','uit','naar','over','door','om','te','als','dat','die','dit','zijn','nog','ook','wel','niet','maar']);
-const NL_EN = { walnoten:'walnuts', amandelen:'almonds', hazelnoten:'hazelnuts', cashewnoten:'cashews', pindas:'peanuts', rozijnen:'raisins', havermout:'oatmeal', kwark:'quark', melk:'milk', boter:'butter', kaas:'cheese', eieren:'eggs', kip:'chicken', rijst:'rice', brood:'bread', honing:'honey', suiker:'sugar', bloem:'flour', aardappelen:'potatoes', tomaten:'tomatoes', uien:'onions', wortelen:'carrots', spinazie:'spinach', zalm:'salmon', tonijn:'tuna', chocolade:'chocolate', noten:'nuts', spek:'bacon', worst:'sausage', yoghurt:'yogurt', karnemelk:'buttermilk', slagroom:'cream', vla:'custard', smeerkaas:'cream cheese', gehakt:'minced meat', kipfilet:'chicken breast', kalkoen:'turkey', varkensvlees:'pork', rundvlees:'beef', garnalen:'shrimp', makreel:'mackerel', haring:'herring', mosselen:'mussels', komkommer:'cucumber', paprika:'bell pepper', courgette:'zucchini', aubergine:'eggplant', bloemkool:'cauliflower', spruitjes:'brussels sprouts', appel:'apple', peer:'pear', aardbei:'strawberry', banaan:'banana', druiven:'grapes', citroen:'lemon', rogge:'rye', spelt:'spelt', muesli:'muesli', granola:'granola', pindakaas:'peanut butter', hagelslag:'chocolate sprinkles', mayonaise:'mayonnaise', mosterd:'mustard', olijfolie:'olive oil', linzen:'lentils', kikkererwten:'chickpeas', pompoen:'pumpkin' };
-const BRAND_ALIASES = { 'ah': 'albert heijn', 'deka': 'dekamarkt', 'dirk': 'dirk van den broek', 'plus': 'plus supermarkt' };
+const NL_EN = { walnoten:'walnuts', amandelen:'almonds', hazelnoten:'hazelnuts', cashewnoten:'cashews', pindas:'peanuts', rozijnen:'raisins', havermout:'oatmeal', kwark:'quark', melk:'milk', boter:'butter', kaas:'cheese', eieren:'eggs', kip:'chicken', rijst:'rice', brood:'bread', honing:'honey', suiker:'sugar', bloem:'flour', aardappelen:'potatoes', tomaten:'tomatoes', uien:'onions', wortelen:'carrots', spinazie:'spinach', zalm:'salmon', tonijn:'tuna', chocolade:'chocolate', noten:'nuts', spek:'bacon', worst:'sausage', yoghurt:'yogurt', karnemelk:'buttermilk', slagroom:'cream', vla:'custard', smeerkaas:'cream cheese', gehakt:'minced meat', kipfilet:'chicken breast', kalkoen:'turkey', varkensvlees:'pork', rundvlees:'beef', garnalen:'shrimp', makreel:'mackerel', haring:'herring', mosselen:'mussels', komkommer:'cucumber', paprika:'bell pepper', courgette:'zucchini', aubergine:'eggplant', bloemkool:'cauliflower', spruitjes:'brussels sprouts', appel:'apple', peer:'pear', aardbei:'strawberry', banaan:'banana', druiven:'grapes', citroen:'lemon', rogge:'rye', spelt:'spelt', muesli:'muesli', granola:'granola', pindakaas:'peanut butter', hagelslag:'chocolate sprinkles', mayonaise:'mayonnaise', mosterd:'mustard', olijfolie:'olive oil', linzen:'lentils', kikkererwten:'chickpeas', pompoen:'pumpkin', kersen:'cherries', pruimen:'plums', watermeloen:'watermelon', broccoli:'broccoli', sla:'lettuce', ijsbergsla:'iceberg lettuce', asperges:'asparagus', bonen:'beans', sojamelk:'soy milk', havermelk:'oat milk', amandelmelk:'almond milk', crackers:'crackers', beschuit:'rusk', rijstwafels:'rice cakes', pasta:'pasta', macaroni:'macaroni', lasagne:'lasagna', couscous:'couscous', quinoa:'quinoa', augurken:'pickles', olijven:'olives', kabeljauw:'cod', tilapia:'tilapia', biefstuk:'steak', gehaktbal:'meatball', rookworst:'smoked sausage', ham:'ham', salami:'salami' };
+const BRAND_ALIASES = { 'ah': 'albert heijn', 'deka': 'dekamarkt', 'dirk': 'dirk van den broek', 'plus': 'plus supermarkt', 'hv': 'hoogvliet', 'eko': 'ekoplaza' };
 
 const STEM_BLOCKLIST = new Set([
   'chips', 'hummus', 'mais', 'ananas', 'status', 'basis', 'bonus', 'virus', 'campus'
@@ -439,9 +416,9 @@ function scoreProduct(product, query) {
     else if (combinedNLCompact.includes(wCompact) || combinedCompact.includes(wCompact)) { score += 5; treffers++; }
   }
   let minMatches;
-if (woorden.length === 1) minMatches = 1;
-else if (woorden.length <= 4) minMatches = 2;
-else minMatches = 3;
+  if (woorden.length === 1) minMatches = 1;
+  else if (woorden.length <= 4) minMatches = 2;
+  else minMatches = 3;
   if (treffers < minMatches) return -1;
   const essentieleWoorden = woorden.filter(w => BRAND_ALIASES[w] || w.length >= 4);
   const essentieleMatches = essentieleWoorden.filter(w => { const alias = BRAND_ALIASES[w]; return combined.includes(w) || combinedNL.includes(w) || (alias && (combined.includes(alias) || combinedNL.includes(alias))); }).length;
@@ -457,14 +434,14 @@ else minMatches = 3;
   return score;
 }
 
-const searchALicious = async (q, signal, size = 100, onRequest) => {
+const searchALicious = async (q, signal, size = 100, onRequest, onCacheHit) => {
   if (!q || q.length < 2) return [];
   q = q.replace(/[&%#\/\\]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!q || q.length < 2) return [];
   const words = q.toLowerCase().split(' ').filter(w => w.length >= 2 && !NL_STOPWORDS.has(w));
   if (words.length === 0) return [];
   const cached = await getCachedResults(q);
-  if (cached) return cached;
+  if (cached) { onCacheHit?.(); return cached; }
   const fetchSearch = async (term, relevance = false) => {
     if (signal?.aborted) return [];
     const sort = relevance ? '' : '&sort_by=unique_scans_n';
@@ -545,7 +522,6 @@ const searchExercises = async (term, customExercises = []) => {
 };
 
 // ── useModalBehavior hook ─────────────────────────────────────────────────────
-// Handles: #2 swipe-to-close, #4 Escape key, #24 close animation
 function useModalBehavior(onClose) {
   const [closing, setClosing] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
@@ -584,7 +560,6 @@ function useModalBehavior(onClose) {
 }
 
 // ── EmptyState ────────────────────────────────────────────────────────────────
-// #12 – consistent empty states across the app
 function EmptyState({ icon, title, sub }) {
   return html`
     <div style="text-align:center;padding:30px 16px;color:var(--dim)">
@@ -638,7 +613,6 @@ function FavoriteItem({ fav, onToggleFavorite, onSelect }) {
 }
 
 // ── Ring ──────────────────────────────────────────────────────────────────────
-// #13 dynamic font size, #22 stroke in style for CSS transitions, aria-label
 function Ring({ value, goal, label, color }) {
   const r = 26, c = 2 * Math.PI * r;
   const safeGoal = goal > 0 ? goal : 1;
@@ -646,7 +620,6 @@ function Ring({ value, goal, label, color }) {
   const over = value > safeGoal;
   const displayVal = Math.round(value);
   const valFontSize = displayVal >= 1000 ? 8 : displayVal >= 100 ? 10 : 11;
-  const goalFontSize = Math.round(safeGoal) >= 1000 ? 7 : 9;
   return html`
     <div style="text-align:center" aria-label="${label}: ${displayVal} van ${Math.round(safeGoal)}">
       <svg width="68" height="68" role="img">
@@ -655,42 +628,84 @@ function Ring({ value, goal, label, color }) {
           stroke-linecap="round" transform="rotate(-90 34 34)"
           style=${{ stroke: over ? 'var(--danger)' : color, strokeDasharray: `${c*pct} ${c}`, transition: 'stroke-dasharray .6s ease, stroke .3s ease' }}/>
         <text x="34" y="31" text-anchor="middle" fill="#eeeeec" font-size=${valFontSize} font-weight="600" font-family="'JetBrains Mono',monospace">${displayVal}</text>
-        <text x="34" y="44" text-anchor="middle" fill="#555" font-size=${goalFontSize} font-family="'JetBrains Mono',monospace">/${Math.round(safeGoal)}</text>
+        <text x="34" y="45" text-anchor="middle" fill="${over?'#b87272':'#555'}" font-size="10" font-family="'JetBrains Mono',monospace">/${Math.round(safeGoal)}</text>
       </svg>
       <div style="font-size:10px;color:var(--muted);margin-top:-3px">${label}</div>
+      ${over && html`<div style="font-size:9px;color:var(--danger);font-family:'JetBrains Mono',monospace;margin-top:1px">+${Math.round(value - goal)}g</div>`}
     </div>`;
 }
 
-// ── LogCard ───────────────────────────────────────────────────────────────────
-// #27 exit animation, #3 touch target, removable prop for MealLogCard items
-function LogCard({ item, onRemove, removable = true }) {
+// ── LogCard (met bewerk-functionaliteit) ──────────────────────────────────────
+function LogCard({ item, onRemove, onEdit, removable = true }) {
   const [removing, setRemoving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editQty, setEditQty] = useState(item._qty || null);
+  const canEdit = !!item._per100g && !!onEdit;
+
+  const handleSaveEdit = () => {
+    const q = Number(editQty);
+    if (!q || q < 1 || !item._per100g) return;
+    const f = q / 100;
+    onEdit({
+      ...item,
+      hoeveelheid: `${q}g`,
+      calorieën: item._per100g.kcal * f,
+      eiwitten: item._per100g.eiwitten * f,
+      koolhydraten: item._per100g.koolhydraten * f,
+      vetten: item._per100g.vetten * f,
+      _qty: q
+    });
+    setEditing(false);
+  };
+
   const accent = item.eiwitten >= item.koolhydraten && item.eiwitten >= item.vetten
     ? '#85b098' : item.koolhydraten >= item.vetten ? '#7fa4b8' : '#b89e72';
+
   const handleRemove = () => {
     if (removing) return;
     setRemoving(true);
     setTimeout(onRemove, 220);
   };
+
   return html`
-    <div class=${'logcard' + (removing ? ' fade-out' : '')} style="border-left:3px solid ${accent};padding-left:11px">
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.naam}</div>
-        <div style="color:var(--muted);font-size:11px;margin-top:2px">${item.hoeveelheid}</div>
-        <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
-          ${[['E',item.eiwitten,'#85b098'],['K',item.koolhydraten,'#7fa4b8'],['V',item.vetten,'#b89e72']].map(([l,v,col]) => html`
-            <span class="tag" style="color:${col};background:${col}1a;font-size:11px;padding:3px 8px">${l} ${Math.round(v)}g</span>`)}
+    <div class=${'logcard' + (removing ? ' fade-out' : '')} style="border-left:3px solid ${accent};padding-left:11px;flex-direction:column;align-items:stretch;gap:0;padding-bottom:${editing?'10px':''}">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.naam}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+            <div style="color:var(--muted);font-size:11px">${item.hoeveelheid}</div>
+            ${canEdit && html`<button onClick=${() => setEditing(p => !p)} style="background:none;border:none;color:${editing?'var(--c)':'var(--muted)'};font-size:11px;cursor:pointer;padding:0;line-height:1;transition:color .15s">✎</button>`}
+          </div>
+          <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
+            ${[['E',item.eiwitten,'#85b098'],['K',item.koolhydraten,'#7fa4b8'],['V',item.vetten,'#b89e72']].map(([l,v,col]) => html`
+              <span class="tag" style="color:${col};background:${col}1a;font-size:11px;padding:3px 8px">${l} ${Math.round(v)}g</span>`)}
+          </div>
         </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div class="mono" style="font-size:20px;font-weight:700;line-height:1">${Math.round(item.calorieën)}</div>
+          <div style="color:var(--muted);font-size:11px;margin-top:2px">kcal</div>
+        </div>
+        ${removable && html`
+          <button onClick=${handleRemove} class="del-btn"
+            aria-label="Verwijder ${item.naam}"
+            onMouseOver=${e=>e.currentTarget.style.color='var(--danger)'}
+            onMouseOut=${e=>e.currentTarget.style.color='var(--muted)'}>×</button>`}
       </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div class="mono" style="font-size:20px;font-weight:700;line-height:1">${Math.round(item.calorieën)}</div>
-        <div style="color:var(--muted);font-size:9px;margin-top:2px">kcal</div>
-      </div>
-      ${removable && html`
-        <button onClick=${handleRemove} class="del-btn"
-          aria-label="Verwijder ${item.naam}"
-          onMouseOver=${e=>e.currentTarget.style.color='var(--danger)'}
-          onMouseOut=${e=>e.currentTarget.style.color='var(--dim)'}>×</button>`}
+      ${editing && html`
+        <div class="fade-up" style="display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1px solid var(--border);margin-top:8px">
+          <input type="number" value=${editQty} onInput=${e => setEditQty(e.target.value)}
+            onKeyDown=${e => e.key === 'Enter' && handleSaveEdit()}
+            class="field mono" style="width:80px;padding:7px 10px;text-align:center;font-size:16px;font-weight:700;flex-shrink:0"/>
+          <span style="font-size:12px;color:var(--muted)">g</span>
+          <button onClick=${handleSaveEdit}
+            style="flex:1;background:var(--c);color:var(--bg);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer">
+            Opslaan
+          </button>
+          <button onClick=${() => setEditing(false)}
+            style="flex-shrink:0;background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:8px 10px;font-size:12px;cursor:pointer">
+            Annuleer
+          </button>
+        </div>`}
     </div>`;
 }
 
@@ -706,12 +721,12 @@ function MealLogCard({ meal, onRemove }) {
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div class="mono" style="font-size:18px;font-weight:700;line-height:1">${Math.round(totals.calorieën)}</div>
-          <div style="color:var(--muted);font-size:9px;margin-top:2px">kcal</div>
+          <div style="color:var(--muted);font-size:11px;margin-top:2px">kcal</div>
         </div>
-        <div style="color:var(--muted);font-size:14px;transition:transform .2s;transform:rotate(${open?'180':'0'}deg);flex-shrink:0">▾</div>
+        <div style="color:#888888;font-size:14px;transition:transform .2s;transform:rotate(${open?'180':'0'}deg);flex-shrink:0">▾</div>
         <button onClick=${e => { e.stopPropagation(); onRemove(meal.id); }} class="del-btn" aria-label="Verwijder maaltijd"
           onMouseOver=${e=>e.currentTarget.style.color='var(--danger)'}
-          onMouseOut=${e=>e.currentTarget.style.color='var(--dim)'}>×</button>
+          onMouseOut=${e=>e.currentTarget.style.color='var(--muted)'}>×</button>
       </div>
       ${open && html`
         <div style="border-top:1px solid var(--border);padding:8px 13px 12px;animation:expandDown .28s ease;overflow:hidden">
@@ -721,7 +736,6 @@ function MealLogCard({ meal, onRemove }) {
 }
 
 // ── ProductRow ────────────────────────────────────────────────────────────────
-// #11 use .pill CSS classes, #28 heartShrink, #29 success button transition
 function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite = false, onToggleFavorite = null }) {
   const n = product.nutriments;
   const rawServing = product.serving_size || '';
@@ -762,15 +776,15 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
           </div>`}
         <div style="flex-shrink:0;text-align:right;min-width:42px">
           <div class="mono" style="font-size:13px;font-weight:700;color:${expanded?'var(--c)':'var(--text)'}">${cal100}</div>
-          <div style="font-size:9px;color:var(--muted)">kcal/100g</div>
+          <div style="font-size:10px;color:var(--muted)">kcal/100g</div>
         </div>
         ${onToggleFavorite && html`
           <button onClick=${handleHeart} class=${heartAnim}
             aria-label=${isFavorite ? 'Verwijder uit favorieten' : 'Voeg toe aan favorieten'}
-            style="flex-shrink:0;background:none;border:none;font-size:17px;cursor:pointer;padding:2px 4px;min-width:36px;min-height:36px;line-height:1;color:${isFavorite?'var(--danger)':'var(--muted)'};transition:color .15s">
+            style="flex-shrink:0;background:none;border:none;font-size:17px;cursor:pointer;padding:2px 4px;min-width:36px;min-height:36px;line-height:1;color:${isFavorite?'var(--danger)':'#888888'};transition:color .15s">
             ${isFavorite ? '♥' : '♡'}
           </button>`}
-        <div style="flex-shrink:0;color:var(--muted);font-size:14px;margin-left:2px;transition:transform .2s;transform:rotate(${expanded?'180':'0'}deg)">▾</div>
+        <div style="flex-shrink:0;color:#888888;font-size:14px;margin-left:2px;transition:transform .2s;transform:rotate(${expanded?'180':'0'}deg)">▾</div>
       </div>
       ${expanded && html`
         <div class="product-row-body">
@@ -786,7 +800,7 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
             <span style="font-size:12px;color:var(--muted);flex-shrink:0">g / ml</span>
             <div style="margin-left:auto;text-align:right;flex-shrink:0">
               <div class="mono" style="font-size:22px;font-weight:700;line-height:1">${cal}</div>
-              <div style="color:var(--muted);font-size:9px;margin-top:2px">kcal</div>
+              <div style="color:var(--muted);font-size:11px;margin-top:2px">kcal</div>
             </div>
           </div>
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
@@ -798,7 +812,6 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
             ${[['E',(n['proteins_100g']||0)*f,'var(--p)'],['K',(n['carbohydrates_100g']||0)*f,'var(--c)'],['V',(n['fat_100g']||0)*f,'var(--f)']].map(([l,v,col]) => html`
               <span class="tag" style="color:${col};background:${col}1a">${l} ${Math.round(v)}g</span>`)}
           </div>
-          <!-- #29 success button fade via transition on background/color/border -->
           <button onClick=${add}
             style="width:100%;background:${done?'var(--p)':'var(--s1)'};color:${done?'var(--bg)':'var(--text)'};border:1px solid ${done?'var(--p)':'var(--border)'};border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;transition:background .4s ease,color .4s ease,border-color .4s ease;letter-spacing:.01em">
             ${done ? '✓ Toegevoegd' : '+ Voeg toe'}
@@ -808,11 +821,12 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
 }
 
 // ── SearchModal ───────────────────────────────────────────────────────────────
-// #2 swipe, #4 escape, #7 auto-focus, #24 close anim, #25 staggered results
-function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, favorites = [], onToggleFavorite = null }) {
+function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, favorites = [], onToggleFavorite = null, fromCache = false }) {
   const [expandedIdx, setExpandedIdx] = useState(results.length === 1 ? 0 : null);
-  const { closing, handleClose, backdropClass, sheetClass, sheetStyle, touchHandlers } = useModalBehavior(onClose);
+  const [showAll, setShowAll] = useState(false);
+  const displayedResults = showAll ? results : results.slice(0, 20);
   const toggle = (idx) => setExpandedIdx(prev => prev === idx ? null : idx);
+  const { closing, handleClose, backdropClass, sheetClass, sheetStyle, touchHandlers } = useModalBehavior(onClose);
 
   return html`
     <div class=${backdropClass} onClick=${e => e.target === e.currentTarget && handleClose()}>
@@ -821,7 +835,10 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, f
         <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px 10px">
           <div>
             <div style="font-weight:700;font-size:14px">Resultaten <span style="color:var(--muted);font-weight:400"> voor </span><span style="color:var(--c)">"${query}"</span></div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px">${results.length} product${results.length !== 1 ? 'en' : ''} gevonden · Open Food Facts</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:6px">
+              <span>${results.length} product${results.length !== 1 ? 'en' : ''} gevonden · Open Food Facts</span>
+              ${fromCache && html`<span style="font-size:10px;background:#7fa4b81a;border:1px solid #7fa4b840;color:var(--c);border-radius:4px;padding:1px 6px;font-family:'JetBrains Mono',monospace">gecached</span>`}
+            </div>
           </div>
           <button onClick=${handleClose} aria-label="Sluiten"
             style="background:var(--s2);border:1px solid var(--border);color:var(--muted);width:36px;height:36px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s">×</button>
@@ -836,8 +853,7 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, f
         <div style="overflow-y:auto;padding:12px 16px 24px;flex:1">
           ${results.length === 0 && !offError && html`<${EmptyState} icon="🔍" title="Geen producten gevonden"/>`}
           ${offError && html`<div style="color:var(--danger);font-size:12px;margin-bottom:12px;padding:9px 11px;background:#b8727215;border:1px solid #b8727230;border-radius:8px;line-height:1.5">${offError}</div>`}
-          ${/* #25 staggered animation delay per result */
-            results.map(({ product, qty }, idx) => html`
+          ${displayedResults.map(({ product, qty }, idx) => html`
             <div style="animation:fadeUp .22s ease both;animation-delay:${idx * 35}ms">
               <${ProductRow}
                 key=${product.product_name + idx}
@@ -850,13 +866,19 @@ function SearchModal({ results, query, offError, onClose, onAdd, onAIEstimate, f
                 onToggleFavorite=${onToggleFavorite}
               />
             </div>`)}
+          ${!showAll && results.length > 20 && html`
+            <button onClick=${() => setShowAll(true)}
+              style="width:100%;padding:10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;color:var(--muted);font-size:12px;cursor:pointer;margin-top:4px;transition:all .15s"
+              onMouseOver=${e=>{e.currentTarget.style.borderColor='var(--text)';e.currentTarget.style.color='var(--text)'}}
+              onMouseOut=${e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--muted)'}}>
+              Toon alle ${results.length} resultaten
+            </button>`}
         </div>
       </div>
     </div>`;
 }
 
 // ── BarcodeScanner ────────────────────────────────────────────────────────────
-// #20 / #30 – smoother found-state with check-pop animation
 function BarcodeScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
   const readerRef = useRef(null);
@@ -907,7 +929,6 @@ function BarcodeScanner({ onDetected, onClose }) {
 }
 
 // ── AddCustomExerciseModal ────────────────────────────────────────────────────
-// #2 #4 #7 #24 via useModalBehavior + auto-focus
 function AddCustomExerciseModal({ onClose, onSave }) {
   const [name, setName] = useState('');
   const [imageData, setImageData] = useState(null);
@@ -968,7 +989,6 @@ function AddCustomExerciseModal({ onClose, onSave }) {
 }
 
 // ── WorkoutBuilder ────────────────────────────────────────────────────────────
-// #2 #4 #7 #24 via useModalBehavior + auto-focus
 function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = null }) {
   const [naam, setNaam] = useState('');
   const [oefeningen, setOefeningen] = useState([]);
@@ -1026,7 +1046,7 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
             <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.5">Zoek in de database of je eigen oefeningen.</div>
             <div style="display:flex;gap:8px;margin-bottom:8px">
               <input value=${zoekterm} onInput=${e=>setZoekterm(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleZoek()} placeholder="bijv. pike push, L-sit, planche…" class="field" style="flex:1"/>
-              <button onClick=${handleZoek} disabled=${zoeken||!zoekterm.trim()} style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 14px;font-weight:700;font-size:13px;cursor:pointer;opacity:${zoeken||!zoekterm.trim()?'.3':'1'}">${zoeken?'...':'Zoek'}</button>
+              <button onClick=${handleZoek} disabled=${zoeken||!zoekterm.trim()} style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 14px;font-weight:700;font-size:13px;cursor:pointer;opacity:${zoeken||!zoekterm.trim()?'.3':'1'}">${zoeken?'Zoeken…':'Zoek'}</button>
             </div>
             ${zoekresultaten.length > 0 && html`
               <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:8px">
@@ -1053,7 +1073,7 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
                       <div style="flex:1"><div style="font-size:10px;color:var(--muted);margin-bottom:3px">Sets</div><input type="number" value=${oe.sets} onInput=${e=>updateOefening(oe.id,'sets',Number(e.target.value))} class="field mono" style="padding:6px 8px;text-align:center;font-size:14px;font-weight:700"/></div>
                       <div style="color:var(--muted);margin-top:12px">×</div>
                       <div style="flex:1"><div style="font-size:10px;color:var(--muted);margin-bottom:3px">Reps</div><input type="number" value=${oe.reps} onInput=${e=>updateOefening(oe.id,'reps',Number(e.target.value))} class="field mono" style="padding:6px 8px;text-align:center;font-size:14px;font-weight:700"/></div>
-                      <button onClick=${()=>verwijderOefening(oe.id)} class="del-btn" aria-label="Verwijder oefening" style="margin-top:12px" onMouseOver=${e=>e.currentTarget.style.color='var(--danger)'} onMouseOut=${e=>e.currentTarget.style.color='var(--dim)'}>×</button>
+                      <button onClick=${()=>verwijderOefening(oe.id)} class="del-btn" aria-label="Verwijder oefening" style="margin-top:12px" onMouseOver=${e=>e.currentTarget.style.color='var(--danger)'} onMouseOut=${e=>e.currentTarget.style.color='var(--muted)'}>×</button>
                     </div>
                   </div>
                 </div>`)}
@@ -1065,10 +1085,10 @@ function WorkoutBuilder({ onClose, onSave, customExercises = [], editWorkout = n
 }
 
 // ── WorkoutCard ───────────────────────────────────────────────────────────────
-// #31 content expand animation
 function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analysisError }) {
   const [open, setOpen] = useState(false);
-  const [done, setDone] = useState(false);
+  const [logDone, setLogDone] = useState(false);
+
   return html`
     <div style="background:var(--s1);border:1px solid ${open?'var(--p)':'var(--border)'};border-radius:12px;margin-bottom:10px;overflow:hidden;transition:border-color .2s">
       <div onClick=${()=>setOpen(p=>!p)} style="display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer">
@@ -1077,9 +1097,9 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analys
           <div style="font-size:13px;font-weight:600">${workout.naam}</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${workout.oefeningen.length} oefeningen · ${workout.aangemaakt}</div>
         </div>
-        <div style="color:var(--muted);font-size:14px;transition:transform .2s;transform:rotate(${open?'180':'0'}deg);flex-shrink:0">▾</div>
-        <button onClick=${e=>{e.stopPropagation();onEdit(workout);}} aria-label="Bewerk workout" style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:16px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;transition:color .15s;flex-shrink:0" onMouseOver=${e=>e.currentTarget.style.color='var(--c)'} onMouseOut=${e=>e.currentTarget.style.color='var(--dim)'}>✎</button>
-        <button onClick=${e=>{e.stopPropagation();onDelete(workout.id);}} class="del-btn" aria-label="Verwijder workout" onMouseOver=${e=>e.currentTarget.style.color='var(--danger)'} onMouseOut=${e=>e.currentTarget.style.color='var(--dim)'}>×</button>
+        <div style="color:#888888;font-size:14px;transition:transform .2s;transform:rotate(${open?'180':'0'}deg);flex-shrink:0">▾</div>
+        <button onClick=${e=>{e.stopPropagation();onEdit(workout);}} aria-label="Bewerk workout" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;transition:color .15s;flex-shrink:0" onMouseOver=${e=>e.currentTarget.style.color='var(--c)'} onMouseOut=${e=>e.currentTarget.style.color='var(--muted)'}>✎</button>
+        <button onClick=${e=>{e.stopPropagation();onDelete(workout.id);}} class="del-btn" aria-label="Verwijder workout" onMouseOver=${e=>e.currentTarget.style.color='var(--danger)'} onMouseOut=${e=>e.currentTarget.style.color='var(--muted)'}>×</button>
       </div>
       ${open && html`
         <div style="border-top:1px solid var(--border);padding:12px 14px;animation:expandDown .3s cubic-bezier(.4,0,.2,1);overflow:hidden">
@@ -1111,18 +1131,15 @@ function WorkoutCard({ workout, onDelete, onEdit, onLog, loadingAnalysis, analys
                   </div>`;
               })}
             </div>`}
-          <button onClick=${e=>{e.stopPropagation();onLog(workout);setDone(true);setTimeout(()=>setDone(false),1800);}}
-  style="margin-top:12px;width:100%;background:${done?'var(--p)':'var(--c)'};color:var(--bg);border:none;border-radius:10px;padding:9px;font-weight:700;font-size:12px;cursor:pointer;transition:background .4s ease,opacity .15s;letter-spacing:.01em"
-  onMouseOver=${e=>e.currentTarget.style.opacity='.8'}
-  onMouseOut=${e=>e.currentTarget.style.opacity='1'}>
-  ${done ? '✓ Gedaan' : '📌 Vandaag gedaan'}
-</button>
+          <button onClick=${e => { e.stopPropagation(); onLog(workout); setLogDone(true); setTimeout(() => setLogDone(false), 2000); }}
+            style="margin-top:12px;width:100%;background:${logDone?'var(--p)':'var(--c)'};color:var(--bg);border:none;border-radius:10px;padding:9px;font-weight:700;font-size:12px;cursor:pointer;transition:background .2s">
+            ${logDone ? '✓ Gelogd!' : '📌 Vandaag gedaan'}
+          </button>
         </div>`}
     </div>`;
 }
 
 // ── MealBuilderModal ──────────────────────────────────────────────────────────
-// #2 #4 #7 #24 via useModalBehavior + auto-focus
 function MealBuilderModal({ onClose, onSave, onRequest }) {
   const [name, setName] = useState('');
   const [items, setItems] = useState([]);
@@ -1174,7 +1191,7 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
     finally { setOffLoading(false); setOffPhaseMsg(''); }
   };
   const handleAISearch = async (overrideQuery) => {
-  const q = (overrideQuery !== undefined ? overrideQuery : aiQuery).trim();
+    const q = (overrideQuery !== undefined ? overrideQuery : aiQuery).trim();
     setAiLoading(true); setAiError('');
     try {
       const data = await callGemini(NUTRITION_SYSTEM, q, 2048);
@@ -1204,16 +1221,22 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
           <div class="card" style="margin-bottom:12px">
             <div class="section-label">● Database zoeken</div>
             <div style="display:flex;gap:8px">
-              <input value=${offQuery} onInput=${e=>setOffQuery(e.target.value.trimEnd())} onKeyDown=${e=>e.key==='Enter'&&handleOFFSearch()} placeholder="bijv. 30g volkoren brood, 2 eieren" class="field" style="flex:1"/>
-              <button onClick=${handleOFFSearch} disabled=${offLoading||!offQuery.trim()} style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer">${offLoading?'...':'Zoek'}</button>
+              <div style="position:relative;flex:1">
+                <input value=${offQuery} onInput=${e=>setOffQuery(e.target.value.trimEnd())} onKeyDown=${e=>e.key==='Enter'&&handleOFFSearch()} placeholder="bijv. 30g volkoren brood, 2 eieren" class="field" style="width:100%;padding-right:${offQuery?'32px':'12px'}"/>
+                ${offQuery && html`<button onClick=${()=>setOffQuery('')} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
+              </div>
+              <button onClick=${handleOFFSearch} disabled=${offLoading||!offQuery.trim()} style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer">${offLoading?'Zoeken…':'Zoek'}</button>
             </div>
             ${offLoading&&html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px"><div class="spinner" style="border-top-color:var(--c)"/><span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span></div>`}
           </div>
           <div class="card" style="margin-bottom:12px">
             <div class="section-label">✦ Beschrijven met AI</div>
             <div style="display:flex;gap:8px">
-              <input value=${aiQuery} onInput=${e=>setAiQuery(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="flex:1"/>
-              <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer">${aiLoading?'...':'Schat'}</button>
+              <div style="position:relative;flex:1">
+                <input value=${aiQuery} onInput=${e=>setAiQuery(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="width:100%;padding-right:${aiQuery?'32px':'12px'}"/>
+                ${aiQuery && html`<button onClick=${()=>{setAiQuery('');setAiBericht('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
+              </div>
+              <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer">${aiLoading?'Schatten…':'Schat'}</button>
             </div>
             ${aiLoading&&html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px"><div class="spinner" style="border-top-color:var(--f)"/><span style="font-size:12px;color:var(--muted)">AI schat voedingswaarden…</span></div>`}
             ${aiError&&html`<div style="color:var(--danger);font-size:12px;margin-top:8px">${aiError}</div>`}
@@ -1230,7 +1253,6 @@ function MealBuilderModal({ onClose, onSave, onRequest }) {
 }
 
 // ── AddProductModal ───────────────────────────────────────────────────────────
-// #2 #4 #7 #24 via useModalBehavior + auto-focus
 function AddProductModal({ onClose, onSave }) {
   const [naam, setNaam] = useState('');
   const [kcal, setKcal] = useState('');
@@ -1268,7 +1290,6 @@ function AddProductModal({ onClose, onSave }) {
 }
 
 // ── NutritionChart ────────────────────────────────────────────────────────────
-// #15 goal line, bars turn red when over goal
 function NutritionChart({ calorieGoal = 2000 }) {
   const [history, setHistory] = useState({});
   useEffect(() => { dbGet('ct_food_history', {}).then(setHistory); }, []);
@@ -1346,6 +1367,7 @@ function App() {
   const [offError, setOffError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [modalLabel, setModalLabel] = useState('');
+  const [resultFromCache, setResultFromCache] = useState(false);
 
   const [aiQuery, setAiQuery] = useState('');
   const [aiBericht, setAiBericht] = useState('');
@@ -1368,47 +1390,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState('');
 
-  // ── Favorieten state ───────────────────────────────────────────────────────
   const [favorites, setFavorites] = useState([]);
-
-  const toggleFavorite = (product) => {
-    setFavorites(prev => {
-      const key = product.product_name?.toLowerCase();
-      const exists = prev.some(f => f.product_name?.toLowerCase() === key);
-      const updated = exists
-        ? prev.filter(f => f.product_name?.toLowerCase() !== key)
-        : [...prev, {
-            id: Date.now() + Math.random(),
-            product_name: product.product_name,
-            brands: product.brands || '',
-            nutriments: product.nutriments,
-            serving_size: product.serving_size || null
-          }];
-      saveFavorites(updated);
-      return updated;
-    });
-  };
-
-
-
-  useEffect(() => {
-  Promise.all([
-    loadWorkouts(),
-    loadCustomExercises(),
-    loadPresets(),
-    dbGet('ct_custom_products', []),
-    loadFavorites(),
-  ]).then(([w, ex, pr, cp, favs]) => {
-    setWorkouts(w);
-    setCustomExercises(ex);
-    setPresets(pr);
-    setCustomProducts(cp);
-    setFavorites(favs);
-    setIsLoading(false);
-  });
-}, []);
-  useEffect(() => { workoutsRef.current = workouts; }, [workouts]);
-
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState(null);
   const [showAddExercise, setShowAddExercise] = useState(false);
@@ -1416,7 +1398,10 @@ function App() {
   const [analysisLoading, setAnalysisLoading] = useState({});
   const [analysisErrors, setAnalysisErrors] = useState({});
   const [libTab, setLibTab] = useState('maaltijden');
+  const [undoItem, setUndoItem] = useState(null);
+  const undoTimeoutRef = useRef(null);
   const [uploadedImage, setUploadedImage] = useState(null);
+  const [headerCompact, setHeaderCompact] = useState(false);
   const fileInputRef = useRef(null);
   const offInputRef = useRef();
   const aiInputRef = useRef();
@@ -1431,6 +1416,26 @@ function App() {
   useEffect(() => { saveLog(log); }, [log]);
   useEffect(() => { jset('ct_maxResults', maxResults); }, [maxResults]);
   useEffect(() => { dbSet('ct_custom_products', customProducts); }, [customProducts]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key !== 'Escape') return;
+      if (showModal) { closeModal(); return; }
+      if (showWorkoutBuilder) { setShowWorkoutBuilder(false); setEditingWorkout(null); return; }
+      if (showMealBuilder) { setShowMealBuilder(false); return; }
+      if (showAddProduct) { setShowAddProduct(false); return; }
+      if (showAddExercise) { setShowAddExercise(false); return; }
+      if (scanning) { setScanning(false); return; }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showModal, showWorkoutBuilder, showMealBuilder, showAddProduct, showAddExercise, scanning]);
+
+  useEffect(() => {
+    const handler = () => setHeaderCompact(window.scrollY > 80);
+    window.addEventListener('scroll', handler, { passive: true });
+    return () => window.removeEventListener('scroll', handler);
+  }, []);
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -1481,23 +1486,56 @@ function App() {
     }
   };
 
+  const removeLogItem = (id) => {
+    const item = log.find(e => e.id === id);
+    if (!item) return;
+    setLog(p => p.filter(e => e.id !== id));
+    setUndoItem(item);
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    undoTimeoutRef.current = setTimeout(() => setUndoItem(null), 5000);
+  };
+
+  const handleUndo = () => {
+    if (!undoItem) return;
+    setLog(p => [...p, undoItem]);
+    setUndoItem(null);
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+  };
+
+  const editLogItem = (updated) => {
+    setLog(p => p.map(e => e.id === updated.id ? updated : e));
+  };
+
   const addOFF = (product, qty) => {
-  const n = product.nutriments, f = qty / 100;
-  addItems([{ naam: product.product_name, hoeveelheid: `${qty}g`, calorieën: getKcal100g(n)*f, eiwitten: (n['proteins_100g']||0)*f, koolhydraten: (n['carbohydrates_100g']||0)*f, vetten: (n['fat_100g']||0)*f }]);
-  saveSearchPref(modalLabel || offQuery, product);
-};
+    const n = product.nutriments, f = qty / 100;
+    addItems([{
+      naam: product.product_name,
+      hoeveelheid: `${qty}g`,
+      calorieën: getKcal100g(n) * f,
+      eiwitten: (n['proteins_100g'] || 0) * f,
+      koolhydraten: (n['carbohydrates_100g'] || 0) * f,
+      vetten: (n['fat_100g'] || 0) * f,
+      _per100g: {
+        kcal: getKcal100g(n),
+        eiwitten: n['proteins_100g'] || 0,
+        koolhydraten: n['carbohydrates_100g'] || 0,
+        vetten: n['fat_100g'] || 0
+      },
+      _qty: qty
+    }]);
+    saveSearchPref(modalLabel || offQuery, product);
+  };
 
   const closeModal = () => { setShowModal(false); setOffResults([]); setOffError(''); setTimeout(() => offInputRef.current?.focus(), 50); };
 
   const handleAIFromModal = async () => {
-  const q = modalLabel || offQuery;
-  closeModal();
-  setAiQuery(q);
-  if (!q.trim() || aiLoading) return;
-  handleAISearch(q);
-};
+    const q = modalLabel || offQuery;
+    closeModal();
+    setAiQuery(q);
+    if (!q.trim() || aiLoading) return;
+    handleAISearch(q);
+  };
 
-  // ── Custom exercises ───────────────────────────────────────────────────────
   const handleSaveCustomExercise = (exercise) => {
     const updated = [...customExercises, exercise];
     setCustomExercises(updated);
@@ -1510,7 +1548,6 @@ function App() {
     saveCustomExercises(updated);
   };
 
-  // ── Presets & workouts ─────────────────────────────────────────────────────
   const handleLoadPreset = (preset) => addItems(preset.items.map(item => ({ ...item })), preset.naam);
   const handleDeletePreset = (index) => {
     if (!confirm('Weet je zeker dat je deze maaltijd wilt verwijderen?')) return;
@@ -1564,7 +1601,6 @@ function App() {
     }
   };
 
-  // ── OFF zoeken ─────────────────────────────────────────────────────────────
   const handleOFFSearch = async () => {
     const q = offQuery.trim();
     if (/^[0-9]{8,14}$/.test(q)) {
@@ -1572,7 +1608,7 @@ function App() {
       const controller = new AbortController();
       abortOFF.current = controller;
       const { signal } = controller;
-      setOffLoading(true); setOffPhaseMsg('Barcode opzoeken…'); setOffError(''); setOffResults([]); setShowModal(false); setModalLabel(q);
+      setOffLoading(true); setOffPhaseMsg('Barcode opzoeken…'); setOffError(''); setOffResults([]); setShowModal(false); setModalLabel(q); setResultFromCache(false);
       try {
         const product = await offBarcode(q, signal);
         if (product) { setOffResults([{ product, qty: null }]); setShowModal(true); }
@@ -1586,7 +1622,7 @@ function App() {
     const controller = new AbortController();
     abortOFF.current = controller;
     const { signal } = controller;
-    setOffLoading(true); setOffError(''); setOffResults([]); setShowModal(false);
+    setOffLoading(true); setOffError(''); setOffResults([]); setShowModal(false); setResultFromCache(false);
     const termen = q.split(',').map(s => s.trim()).filter(Boolean);
     const parsed = termen.map(extractQty);
     const cleans = parsed.map(p => p.clean);
@@ -1606,7 +1642,7 @@ function App() {
         try {
           const customMatches = customProducts.filter(p => p.naam.toLowerCase().includes(cleans[i].toLowerCase()));
           if (customMatches.length) gevonden.push(...customMatches.map(p => ({ product: { product_name: p.naam, brands: 'Eigen product', nutriments: { 'energy-kcal_100g': p.calorieën, proteins_100g: p.eiwitten, carbohydrates_100g: p.koolhydraten, fat_100g: p.vetten }, serving_size: null }, qty })));
-          const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1));
+          const prods = await searchALicious(cleans[i], signal, maxResults, () => setUsageTick(t => t+1), () => setResultFromCache(true));
           if (prods.length > 0) { gevonden.push(...prods.map(product => ({ product, qty }))); progressMessages[progressMessages.length - 1] = `"${term}": ${prods.length} gevonden`; }
           else { mislukt.push(term); progressMessages[progressMessages.length - 1] = `"${term}": niets gevonden`; }
         } catch (e) { if (e.name === 'AbortError') break; serverError = true; mislukt.push(term); progressMessages[progressMessages.length - 1] = `"${term}": fout`; }
@@ -1624,9 +1660,8 @@ function App() {
     } finally { clearTimeout(timeoutId); setOffLoading(false); setOffPhaseMsg(''); }
   };
 
-  // ── AI beschrijven ─────────────────────────────────────────────────────────
   const handleAISearch = async (overrideQuery) => {
-  const q = (overrideQuery ?? aiQuery).trim();
+    const q = (overrideQuery !== undefined ? overrideQuery : aiQuery).trim();
     if (!q || aiLoading) return;
     setAiLoading(true); setAiError(''); setAiBericht('');
     try {
@@ -1668,14 +1703,13 @@ Geen uitleg.`;
     }
   }
 
-  // ── Barcode ────────────────────────────────────────────────────────────────
   const handleBarcode = async (code) => {
     setScanning(false);
     if (abortOFF.current) abortOFF.current.abort();
     const controller = new AbortController();
     abortOFF.current = controller;
     const { signal } = controller;
-    setOffLoading(true); setOffPhaseMsg('Barcode opzoeken…'); setOffError(''); setOffResults([]); setShowModal(false); setOffQuery(code); setModalLabel(code);
+    setOffLoading(true); setOffPhaseMsg('Barcode opzoeken…'); setOffError(''); setOffResults([]); setShowModal(false); setOffQuery(code); setModalLabel(code); setResultFromCache(false);
     try {
       const product = await offBarcode(code, signal);
       if (product) { setOffResults([{ product, qty: null }]); setShowModal(true); }
@@ -1696,7 +1730,25 @@ Geen uitleg.`;
         </div>
       </div>`;
   }
-  
+
+  const toggleFavorite = (product) => {
+    setFavorites(prev => {
+      const key = product.product_name?.toLowerCase();
+      const exists = prev.some(f => f.product_name?.toLowerCase() === key);
+      const updated = exists
+        ? prev.filter(f => f.product_name?.toLowerCase() !== key)
+        : [...prev, {
+            id: Date.now() + Math.random(),
+            product_name: product.product_name,
+            brands: product.brands || '',
+            nutriments: product.nutriments,
+            serving_size: product.serving_size || null
+          }];
+      saveFavorites(updated);
+      return updated;
+    });
+  };
+
   return html`<div>
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
     ${showWorkoutBuilder && html`<${WorkoutBuilder} customExercises=${customExercises} editWorkout=${editingWorkout} onClose=${() => { setShowWorkoutBuilder(false); setEditingWorkout(null); }} onSave=${handleSaveWorkout}/>`}
@@ -1713,6 +1765,7 @@ Geen uitleg.`;
       onAIEstimate=${handleAIFromModal}
       favorites=${favorites}
       onToggleFavorite=${toggleFavorite}
+      fromCache=${resultFromCache}
     />`}
 
     <!-- Header -->
@@ -1723,38 +1776,37 @@ Geen uitleg.`;
             <div style="font-size:16px;font-weight:700;letter-spacing:-.3px">CalorieTracker</div>
             <div style="font-size:11px;color:var(--muted);margin-top:1px">${new Date().toLocaleDateString('nl-NL',{weekday:'long',day:'numeric',month:'long'})}</div>
           </div>
-          <button onClick=${()=>{if(confirm('Weet je zeker dat je alle logitems van vandaag wilt verwijderen?')){setLog([]);setAiBericht('');setOffResults([]);setOffError('');setAiError('');setShowModal(false);}}}
+          <button onClick=${()=>{
+            if (!confirm('Weet je zeker dat je de dag wilt resetten? Dit kan niet ongedaan worden gemaakt.')) return;
+            setLog([]);setAiBericht('');setOffResults([]);setOffError('');setAiError('');setShowModal(false);
+          }}
             style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 11px;font-size:11px;cursor:pointer;transition:all .15s"
             onMouseOver=${e=>{e.currentTarget.style.color='var(--danger)';e.currentTarget.style.borderColor='var(--danger)'}}
             onMouseOut=${e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.borderColor='var(--border)'}}>
             Reset dag
           </button>
         </div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);margin-bottom:6px">
           <span>Calorieën</span>
-          <span class="mono" style="color:${calOver?'var(--danger)':'var(--text)'};font-weight:600">${Math.round(totals.calorieën)} / ${goals.calorieën} kcal</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:10px;color:${calOver?'var(--danger)':'var(--p)'}">
+              ${calOver
+                ? `+${Math.round(totals.calorieën - goals.calorieën)} over`
+                : `${Math.round(goals.calorieën - totals.calorieën)} resterend`}
+            </span>
+            <span class="mono" style="color:${calOver?'var(--danger)':'var(--text)'};font-weight:600">${Math.round(totals.calorieën)} / ${goals.calorieën} kcal</span>
+          </div>
         </div>
         <div style="background:var(--s2);border-radius:6px;height:8px;overflow:hidden">
           <div style="width:${calPct*100}%;height:100%;background:${calOver?'var(--danger)':'var(--text)'};border-radius:6px;transition:width .5s ease"/>
         </div>
-        <div style="display:flex;justify-content:space-around;margin-top:16px">
-          <${Ring} value=${totals.eiwitten} goal=${goals.eiwitten} label="Eiwitten" color="var(--p)"/>
-          <${Ring} value=${totals.koolhydraten} goal=${goals.koolhydraten} label="Koolhydraten" color="var(--c)"/>
-          <${Ring} value=${totals.vetten} goal=${goals.vetten} label="Vetten" color="var(--f)"/>
+        <div style="overflow:hidden;transition:max-height .3s ease,opacity .3s ease,margin-top .3s ease;max-height:${headerCompact?'0':'140px'};opacity:${headerCompact?'0':'1'};margin-top:${headerCompact?'0':'16px'}">
+          <div style="display:flex;justify-content:space-around">
+            <${Ring} value=${totals.eiwitten} goal=${goals.eiwitten} label="Eiwitten" color="var(--p)"/>
+            <${Ring} value=${totals.koolhydraten} goal=${goals.koolhydraten} label="Koolhydraten" color="var(--c)"/>
+            <${Ring} value=${totals.vetten} goal=${goals.vetten} label="Vetten" color="var(--f)"/>
+          </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Tabs -->
-    <div style="background:var(--bg);border-bottom:1px solid var(--border)">
-      <div style="max-width:480px;margin:0 auto;display:flex">
-        <button class=${'tab'+(tab==='add'?' on':'')} onClick=${()=>setTab('add')}>Toevoegen</button>
-        <button class=${'tab'+(tab==='workout'?' on':'')} onClick=${()=>setTab('workout')}>Workouts</button>
-        <button class=${'tab'+(tab==='progress'?' on':'')} onClick=${()=>setTab('progress')}>Voortgang</button>
-        <button class=${'tab'+(tab==='settings'?' on':'')} onClick=${()=>setTab('settings')} style="display:flex;align-items:center;justify-content:center;gap:5px">
-          Instellingen
-          <span style="width:7px;height:7px;border-radius:50%;background:${key?'var(--p)':'var(--danger)'};flex-shrink:0"/>
-        </button>
       </div>
     </div>
 
@@ -1776,10 +1828,13 @@ Geen uitleg.`;
                 <line x1="7" y1="12" x2="7" y2="12.01"/><line x1="17" y1="12" x2="17" y2="12.01"/><line x1="12" y1="7" x2="12" y2="17"/>
               </svg>
             </button>
-            <input ref=${offInputRef} value=${offQuery} onInput=${e=>setOffQuery(e.target.value.trimEnd())} onKeyDown=${e=>e.key==='Enter'&&handleOFFSearch()} placeholder="bijv. 30g volkoren brood, 2 eieren" class="field" style="flex:1"/>
+            <div style="position:relative;flex:1">
+              <input ref=${offInputRef} value=${offQuery} onInput=${e=>setOffQuery(e.target.value.trimEnd())} onKeyDown=${e=>e.key==='Enter'&&handleOFFSearch()} placeholder="bijv. 30g volkoren brood, 2 eieren" class="field" style="width:100%;padding-right:${offQuery?'32px':'12px'}"/>
+              ${offQuery && html`<button onClick=${()=>setOffQuery('')} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
+            </div>
             <button onClick=${handleOFFSearch} disabled=${offLoading||!offQuery.trim()}
               style="flex-shrink:0;background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${offLoading||!offQuery.trim()?'.3':'1'};white-space:nowrap;transition:opacity .15s">
-              ${offLoading ? '...' : 'Zoek'}
+              ${offLoading ? 'Zoeken…' : 'Zoek'}
             </button>
           </div>
           ${offLoading && html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0"><div class="spinner" style="border-top-color:var(--c)"/><span style="font-size:12px;color:var(--muted)">${offPhaseMsg}</span></div>`}
@@ -1794,21 +1849,24 @@ Geen uitleg.`;
           <div style="display:flex;gap:8px;align-items:center">
             <input type="file" accept="image/*" capture="environment" style="display:none" ref=${fileInputRef} onChange=${handleFileUpload}/>
             <button class="icon-btn" onClick=${() => fileInputRef.current.click()} title="Foto toevoegen" style="flex-shrink:0">📷</button>
-            <input ref=${aiInputRef} value=${aiQuery} onInput=${e=>{ setAiQuery(e.target.value); if(aiBericht||aiError){ setAiBericht(''); setAiError(''); } }} onKeyDown=${e=>e.key==='Enter'&&handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="flex:1"/>
+            <div style="position:relative;flex:1">
+              <input ref=${aiInputRef} value=${aiQuery} onInput=${e=>{ setAiQuery(e.target.value); if(aiBericht||aiError){ setAiBericht(''); setAiError(''); } }} onKeyDown=${e=>e.key==='Enter'&&handleAISearch()} placeholder="bijv. 300g groentesoep, 2 eieren…" class="field" style="width:100%;padding-right:${aiQuery?'32px':'12px'}"/>
+              ${aiQuery && html`<button onClick=${()=>{setAiQuery('');setAiBericht('');setAiError('');}} style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>`}
+            </div>
             <button onClick=${handleAISearch} disabled=${aiLoading||!aiQuery.trim()} style="flex-shrink:0;background:var(--f);color:var(--bg);border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;opacity:${aiLoading||!aiQuery.trim()?'.3':'1'};white-space:nowrap">
-              ${aiLoading ? '...' : 'Schat'}
+              ${aiLoading ? 'Schatten…' : 'Schat'}
             </button>
           </div>
           ${uploadedImage && html`
-  <div style="margin-top:8px;position:relative;display:inline-block">
-    <img src="data:${uploadedImage.mimeType};base64,${uploadedImage.data}"
-         style="max-width:200px;max-height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:block" />
-    <button onClick=${() => setUploadedImage(null)}
-      style="position:absolute;top:-4px;right:-4px;background:var(--s2);border:1px solid var(--border);color:var(--muted);width:22px;height:22px;border-radius:50%;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s"
-      onMouseOver=${e => { e.currentTarget.style.background='var(--danger)'; e.currentTarget.style.color='var(--bg)'; }}
-      onMouseOut=${e => { e.currentTarget.style.background='var(--s2)'; e.currentTarget.style.color='var(--muted)'; }}
-      aria-label="Foto verwijderen">×</button>
-  </div>`}
+            <div style="margin-top:8px;position:relative;display:inline-block">
+              <img src="data:${uploadedImage.mimeType};base64,${uploadedImage.data}"
+                   style="max-width:200px;max-height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--border);display:block" />
+              <button onClick=${() => setUploadedImage(null)}
+                style="position:absolute;top:-4px;right:-4px;background:var(--s2);border:1px solid var(--border);color:var(--muted);width:22px;height:22px;border-radius:50%;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s"
+                onMouseOver=${e => { e.currentTarget.style.background='var(--danger)'; e.currentTarget.style.color='var(--bg)'; }}
+                onMouseOut=${e => { e.currentTarget.style.background='var(--s2)'; e.currentTarget.style.color='var(--muted)'; }}
+                aria-label="Foto verwijderen">×</button>
+            </div>`}
           ${aiLoading && html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:4px 0"><div class="spinner" style="border-top-color:var(--f)"/><span style="font-size:12px;color:var(--muted)">AI schat voedingswaarden…</span></div>`}
           ${aiError && html`<div style="color:var(--danger);font-size:12px;margin-top:8px">${aiError}</div>`}
           ${aiBericht && html`<div class="fade-up" style="margin-top:10px;padding:10px;background:var(--s2);border-radius:10px;border:1px solid var(--dim);font-size:12px;color:#888;line-height:1.6"><span style="color:var(--f);margin-right:5px">✦</span>${aiBericht}</div>`}
@@ -1852,12 +1910,12 @@ Geen uitleg.`;
                   <button onClick=${() => handleLoadPreset(preset)} style="flex-shrink:0;background:#85b0981a;color:var(--p);border:1px solid #85b09840;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
                     onMouseOver=${e => { e.currentTarget.style.background='var(--p)'; e.currentTarget.style.color='var(--bg)'; }}
                     onMouseOut=${e => { e.currentTarget.style.background='#85b0981a'; e.currentTarget.style.color='var(--p)'; }}>+ Log</button>
-                  <button onClick=${() => handleDeletePreset(idx)} style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+                  <button onClick=${() => handleDeletePreset(idx)} style="flex-shrink:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
                     onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
-                    onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
+                    onMouseOut=${e => e.currentTarget.style.color='var(--muted)'}>×</button>
                 </div>`;
             })}
-          </div>}
+          </div>
 
           <div class="tab-content" style="display:${libTab==='producten'?'block':'none'}">
             ${customProducts.length === 0 && html`<${EmptyState} icon="📦" title="Nog geen eigen producten" sub='Voeg er een toe via "+ Nieuw".'/>`}
@@ -1872,27 +1930,27 @@ Geen uitleg.`;
                   style="flex-shrink:0;background:#7fa4b81a;color:var(--c);border:1px solid #7fa4b840;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
                   onMouseOver=${e => { e.currentTarget.style.background='var(--c)'; e.currentTarget.style.color='var(--bg)'; }}
                   onMouseOut=${e => { e.currentTarget.style.background='#7fa4b81a'; e.currentTarget.style.color='var(--c)'; }}>+ Log</button>
-                <button onClick=${() => deleteCustomProduct(p.id)} style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+                <button onClick=${() => deleteCustomProduct(p.id)} style="flex-shrink:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
                   onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
-                  onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
+                  onMouseOut=${e => e.currentTarget.style.color='var(--muted)'}>×</button>
               </div>`)}
-          </div>}
+          </div>
 
           <div class="tab-content" style="display:${libTab==='favorieten'?'block':'none'}">
             ${favorites.length === 0 && html`<${EmptyState} icon="♡" title="Nog geen favorieten opgeslagen" sub="Tik op ♡ bij een zoekresultaat om het hier op te slaan."/>`}
             ${favorites.map((fav, idx) => html`
-  <div key=${fav.id || fav.product_name} style=${idx < favorites.length-1 ? 'border-bottom:1px solid var(--border)' : ''}>
-    <${FavoriteItem}
-      fav=${fav}
-      onToggleFavorite=${toggleFavorite}
-      onSelect=${(fav) => {
-        setOffResults([{ product: fav, qty: null }]);
-        setModalLabel(fav.product_name);
-        setShowModal(true);
-      }}
-    />
-  </div>`)}
-          </div>}
+              <div key=${fav.id || fav.product_name} style=${idx < favorites.length-1 ? 'border-bottom:1px solid var(--border)' : ''}>
+                <${FavoriteItem}
+                  fav=${fav}
+                  onToggleFavorite=${toggleFavorite}
+                  onSelect=${(fav) => {
+                    setOffResults([{ product: fav, qty: null }]);
+                    setModalLabel(fav.product_name);
+                    setShowModal(true);
+                  }}
+                />
+              </div>`)}
+          </div>
         </div>
 
         <hr class="divider"/>
@@ -1906,10 +1964,24 @@ Geen uitleg.`;
             </div>
             ${[...log].reverse().map(entry => entry.isMeal
               ? html`<${MealLogCard} key=${entry.id} meal=${entry} onRemove=${(id) => setLog(p => p.filter(e => e.id !== id))} />`
-              : html`<${LogCard} key=${entry.id} item=${entry} onRemove=${() => setLog(p => p.filter(e => e.id !== entry.id))} />`)}
+              : html`<${LogCard} key=${entry.id} item=${entry} onRemove=${() => removeLogItem(entry.id)} onEdit=${editLogItem} />`)}
           </div>`}
-          ${log.length===0 && html`<${EmptyState} icon="🍽" title="Nog niets gelogd vandaag"/>`}
+        ${log.length===0 && html`
+          <div style="text-align:center;padding:44px 20px">
+            <div style="font-size:30px;margin-bottom:10px;opacity:.3">🍽</div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Nog niets gelogd vandaag</div>
+            <button onClick=${() => offInputRef.current?.focus()}
+              style="background:var(--c);color:var(--bg);border:none;border-radius:10px;padding:9px 20px;font-size:12px;font-weight:700;cursor:pointer">
+              Zoek een product
+            </button>
+          </div>`}
+        ${undoItem && html`
+          <div class="fade-up" style="position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:10px 16px;display:flex;align-items:center;gap:12px;z-index:100;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.5)">
+            <span style="font-size:12px;color:var(--muted)">"${(undoItem.naam||'').slice(0,22)}${(undoItem.naam||'').length>22?'…':''}" verwijderd</span>
+            <button onClick=${handleUndo} style="background:none;border:none;color:var(--c);font-size:12px;font-weight:700;cursor:pointer;padding:0">Ongedaan maken</button>
+          </div>`}
       </div>
+
       <div class="tab-content" style="display:${tab==='workout'?'block':'none'}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div style="font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase">Mijn workouts</div>
@@ -1920,7 +1992,15 @@ Geen uitleg.`;
             + Nieuwe workout
           </button>
         </div>
-        ${workouts.length === 0 && html`<${EmptyState} icon="🏋️" title="Nog geen workouts opgeslagen"/>`}
+        ${workouts.length === 0 && html`
+          <div style="text-align:center;padding:32px 20px">
+            <div style="font-size:30px;margin-bottom:10px;opacity:.3">🏋️</div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Nog geen workouts opgeslagen</div>
+            <button onClick=${() => { setEditingWorkout(null); setShowWorkoutBuilder(true); }}
+              style="background:var(--p);color:var(--bg);border:none;border-radius:10px;padding:9px 20px;font-size:12px;font-weight:700;cursor:pointer">
+              + Eerste workout aanmaken
+            </button>
+          </div>`}
         ${workouts.map(w => html`<${WorkoutCard} key=${w.id} workout=${w} onDelete=${handleDeleteWorkout} onEdit=${(workout) => { setEditingWorkout(workout); setShowWorkoutBuilder(true); }} onLog=${handleLogWorkout} loadingAnalysis=${analysisLoading[w.id]} analysisError=${analysisErrors[w.id]} />`)}
         <div class="card" style="margin-top:8px;border-top:2px solid #85b09835">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -1945,12 +2025,13 @@ Geen uitleg.`;
                 <div style="font-size:10px;color:var(--p);margin-top:2px">Eigen oefening · ${ex.images?.[0] ? 'met foto' : 'zonder foto'}</div>
               </div>
               <button onClick=${() => handleDeleteCustomExercise(ex.id)}
-                style="flex-shrink:0;background:none;border:none;color:var(--dim);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+                style="flex-shrink:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
                 onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
-                onMouseOut=${e => e.currentTarget.style.color='var(--dim)'}>×</button>
+                onMouseOut=${e => e.currentTarget.style.color='var(--muted)'}>×</button>
             </div>`)}
         </div>
       </div>
+
       <div class="tab-content" style="display:${tab==='settings'?'block':'none'}">
         <div class="card">
           <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:10px">Gemini API Key</div>
@@ -2021,10 +2102,10 @@ Geen uitleg.`;
           <input type="number" value=${maxResults} onInput=${e => setMaxResults(Math.max(1, Math.min(200, Number(e.target.value) || 50)))} min="1" max="200" class="field mono" style="text-align:center;font-size:16px;font-weight:600"/>
           <div style="font-size:10px;color:var(--dim);margin-top:6px">Tussen 1 en 200 (standaard 50)</div>
           <button class="btn"
-  onClick=${async () => { await dbSet('ct_search_prefs', {}); alert('Zoekvoorkeuren gereset.'); }}
-  style="margin-top:12px;background:var(--s2);color:var(--muted);border:1px solid var(--border)">
-  Zoekvoorkeuren resetten
-</button>
+            onClick=${async () => { await dbSet('ct_search_prefs', {}); alert('Zoekvoorkeuren gereset.'); }}
+            style="margin-top:12px;background:var(--s2);color:var(--muted);border:1px solid var(--border)">
+            Zoekvoorkeuren resetten
+          </button>
         </div>
 
         <div class="card">
@@ -2035,14 +2116,28 @@ Geen uitleg.`;
           </div>
         </div>
       </div>
+
       <div class="tab-content" style="display:${tab==='progress'?'block':'none'}">
-          <div style="display:flex;gap:6px;margin-bottom:16px">
-            <button onClick=${() => setProgressView('voeding')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='voeding'?'var(--p)':'var(--border)'};background:${progressView==='voeding'?'var(--p)':'transparent'};color:${progressView==='voeding'?'var(--bg)':'var(--muted)'}">Voeding</button>
-            <button onClick=${() => setProgressView('gym')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='gym'?'var(--c)':'var(--border)'};background:${progressView==='gym'?'var(--c)':'transparent'};color:${progressView==='gym'?'var(--bg)':'var(--muted)'}">Gym</button>
-          </div>
-          ${progressView==='voeding' && html`<${NutritionChart}/>`}
-          ${progressView==='gym' && html`<${GymChart} workouts=${workouts}/>`}
+        <div style="display:flex;gap:6px;margin-bottom:16px">
+          <button onClick=${() => setProgressView('voeding')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='voeding'?'var(--p)':'var(--border)'};background:${progressView==='voeding'?'var(--p)':'transparent'};color:${progressView==='voeding'?'var(--bg)':'var(--muted)'}">Voeding</button>
+          <button onClick=${() => setProgressView('gym')} style="padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${progressView==='gym'?'var(--c)':'var(--border)'};background:${progressView==='gym'?'var(--c)':'transparent'};color:${progressView==='gym'?'var(--bg)':'var(--muted)'}">Gym</button>
         </div>
+        ${progressView==='voeding' && html`<${NutritionChart}/>`}
+        ${progressView==='gym' && html`<${GymChart} workouts=${workouts}/>`}
+      </div>
+    </div>
+
+    <!-- Bottom Nav -->
+    <div style="position:fixed;bottom:0;left:0;right:0;z-index:20;background:var(--s1);border-top:1px solid var(--border)">
+      <div style="max-width:480px;margin:0 auto;display:flex">
+        <button class=${'tab'+(tab==='add'?' on':'')} onClick=${()=>setTab('add')}>Toevoegen</button>
+        <button class=${'tab'+(tab==='workout'?' on':'')} onClick=${()=>setTab('workout')}>Workouts</button>
+        <button class=${'tab'+(tab==='progress'?' on':'')} onClick=${()=>setTab('progress')}>Voortgang</button>
+        <button class=${'tab'+(tab==='settings'?' on':'')} onClick=${()=>setTab('settings')} style="display:flex;align-items:center;justify-content:center;gap:5px">
+          Instellingen
+          <span style="width:7px;height:7px;border-radius:50%;background:${key?'var(--p)':'var(--danger)'};flex-shrink:0"/>
+        </button>
+      </div>
     </div>
   </div>`;
 }
