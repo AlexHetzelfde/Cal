@@ -2135,13 +2135,14 @@ Geen uitleg.`;
   };
   return html`<div>
     ${scanning && html`<${BarcodeScanner} onDetected=${handleBarcode} onClose=${()=>setScanning(false)}/>`}
-    ${activeSession && html`<${WorkoutSessionScreen} ${showQuickAdd && html`<${QuickAddModal}
-  onClose=${() => setShowQuickAdd(false)}
-  onSave=${handleSaveQuickAdd}
-/>`}
+    ${activeSession && html`<${WorkoutSessionScreen}
   session=${activeSession}
   onClose=${() => setActiveSession(null)}
   onSave=${handleSaveSession}
+/>`}
+${showQuickAdd && html`<${QuickAddModal}
+  onClose=${() => setShowQuickAdd(false)}
+  onSave=${handleSaveQuickAdd}
 />`}
     ${showWorkoutBuilder && html`<${WorkoutBuilder} customExercises=${customExercises} editWorkout=${editingWorkout} onClose=${() => { setShowWorkoutBuilder(false); setEditingWorkout(null); }} onSave=${handleSaveWorkout}/>`}
     ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)} favorites=${favorites} onToggleFavorite=${toggleFavorite}/>`}
@@ -2389,6 +2390,7 @@ Geen uitleg.`;
             + Nieuwe workout
           </button>
         </div>
+      </div>
         ${workouts.length === 0 && html`
           <div style="text-align:center;padding:32px 20px">
             <div style="font-size:30px;margin-bottom:10px;opacity:.3">🏋️</div>
