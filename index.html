@@ -606,11 +606,11 @@ function FavoriteItem({ fav, onToggleFavorite, onSelect }) {
   };
   return html`
     <div style="display:flex;align-items:center;gap:10px;padding:9px 0;">
-      <div style="width:36px;height:36px;border-radius:10px;background:#b872721a;border:1px solid #b8727230;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px;color:var(--danger)">♥</div>
+      <${ProductThumb} src=${fav.image_front_small_url} size=36 />
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fav.product_name}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${kcal100} kcal · E ${p100}g · K ${k100}g · V ${v100}g</div>
-        ${fav.brands && html`<div style="font-size:10px;color:var(--dim);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fav.brands}</div>`}
+        ${fav.brands && html`<span style="display:inline-block;font-size:10px;font-weight:600;color:var(--c);background:#7fa4b81a;border:1px solid #7fa4b840;border-radius:5px;padding:1px 7px;margin-top:3px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fav.brands}</span>`}
       </div>
       <button onClick=${() => onSelect(fav)}
         style="flex-shrink:0;background:#b872721a;color:var(--danger);border:1px solid #b8727230;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
