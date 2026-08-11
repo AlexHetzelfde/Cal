@@ -595,9 +595,15 @@ function EmptyState({ icon, title, sub }) {
 function CustomProductItem({ p, onLog, onDelete }) {
   const [expanded, setExpanded] = useState(false);
   const [qty, setQty] = useState(p.eenheidsgewicht || 100);
+  const [base, setBase] = useState(p.eenheidsgewicht || 100);
   const f = qty / 100;
   const MULTIPLIERS = [1, 2, 3, 4, 5, 6, 7, 8];
   const QUICK_SIZES = [25, 50, 100, 150, 200];
+  const handleQtyInput = (e) => {
+    const v = Math.max(1, Number(e.target.value) || 1);
+    setQty(v);
+    setBase(v);
+  };
   const handleLog = () => {
     onLog({
       naam: p.naam,
@@ -624,18 +630,25 @@ function CustomProductItem({ p, onLog, onDelete }) {
       </div>
       ${expanded && html`
         <div class="fade-up" style="padding-top:10px;margin-top:6px;border-top:1px solid var(--border)">
+          ${p.eenheidsgewicht && html`
+            <button onClick=${() => { setQty(p.eenheidsgewicht); setBase(p.eenheidsgewicht); }}
+              style="display:inline-flex;align-items:center;gap:5px;background:#85b0981a;border:1px solid #85b09840;border-radius:8px;color:var(--p);font-size:11px;padding:5px 10px;cursor:pointer;margin-bottom:12px;transition:background .15s"
+              onMouseOver=${e=>e.currentTarget.style.background='#85b09830'}
+              onMouseOut=${e=>e.currentTarget.style.background='#85b0981a'}>↗ 1 stuk · ${p.eenheidsgewicht}g</button>`}
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">
-            <input type="number" value=${qty} onInput=${e=>setQty(Math.max(1,Number(e.target.value)||1))} min="1" class="mono field" style="width:84px;padding:9px 10px;text-align:center;font-size:18px;font-weight:700;flex-shrink:0"/>
+            <input type="number" value=${qty} onInput=${handleQtyInput} min="1" class="mono field" style="width:84px;padding:9px 10px;text-align:center;font-size:18px;font-weight:700;flex-shrink:0"/>
             <span style="font-size:12px;color:var(--muted);flex-shrink:0">g</span>
             <div style="margin-left:auto;text-align:right;flex-shrink:0">
               <div class="mono" style="font-size:22px;font-weight:700;line-height:1">${Math.round(p.calorieën*f)}</div>
               <div style="color:var(--muted);font-size:11px;margin-top:2px">kcal</div>
             </div>
           </div>
-          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px">
-            ${p.eenheidsgewicht
-              ? MULTIPLIERS.map(m => { const v = Math.round(p.eenheidsgewicht*m); return html`<button onClick=${()=>setQty(v)} class=${'pill '+(qty===v?'pill-active':'pill-inactive')}>×${m}</button>`; })
-              : QUICK_SIZES.map(s => html`<button onClick=${()=>setQty(s)} class=${'pill '+(qty===s?'pill-active':'pill-inactive')}>${s}g</button>`)}
+          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
+            ${QUICK_SIZES.map(s => html`<button onClick=${()=>{setQty(s);setBase(s);}} class=${'pill '+(qty===s?'pill-active':'pill-inactive')}>${s}g</button>`)}
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:12px">
+            <span style="font-size:10px;color:var(--muted);flex-shrink:0">× basis (${base}g):</span>
+            ${MULTIPLIERS.map(m => { const v = Math.round(base*m); return html`<button onClick=${()=>setQty(v)} class=${'pill '+(qty===v?'pill-active':'pill-inactive')}>×${m}</button>`; })}
           </div>
           <button onClick=${handleLog} style="width:100%;background:var(--s1);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">+ Voeg toe</button>
         </div>`}
@@ -836,6 +849,8 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
   // Handmatig ingevoerd stuksgewicht (custom product / favoriet) gaat vóór OFF-portiegrootte
   const unitGrams = product.eenheidsgewicht || parseServingSize(rawServing);
   const [qty, setQty] = useState(() => initialQty || unitGrams || 100);
+  // 'base' is het laatst handmatig ingetypte gewicht (bijv. gewicht van 1 ei) — de multiplier rekent altijd tegen déze waarde, niet tegen de al vermenigvuldigde qty
+  const [base, setBase] = useState(() => initialQty || unitGrams || 100);
   const [done, setDone] = useState(false);
   const [heartAnim, setHeartAnim] = useState('');
   const f = qty / 100;
@@ -843,6 +858,11 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
   const cal = Math.round(getKcal100g(n) * f);
   const MULTIPLIERS = [1, 2, 3, 4, 5, 6, 7, 8];
   const QUICK_SIZES = [25, 50, 100, 150, 200];
+  const handleQtyInput = (e) => {
+    const v = Math.max(1, Number(e.target.value) || 1);
+    setQty(v);
+    setBase(v);
+  };
   const servingLabel = (() => {
     if (!unitGrams) return null;
     if (product.eenheidsgewicht) return `1 stuk · ${unitGrams}g`;
@@ -890,22 +910,24 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
   />`}
         <div class="product-row-body">
           ${servingLabel && html`
-            <button onClick=${() => setQty(unitGrams)}
+            <button onClick=${() => { setQty(unitGrams); setBase(unitGrams); }}
               style="display:inline-flex;align-items:center;gap:5px;background:#85b0981a;border:1px solid #85b09840;border-radius:8px;color:var(--p);font-size:11px;padding:5px 10px;cursor:pointer;margin-bottom:12px;transition:background .15s"
               onMouseOver=${e=>e.currentTarget.style.background='#85b09830'}
               onMouseOut=${e=>e.currentTarget.style.background='#85b0981a'}>↗ ${servingLabel}</button>`}
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">
-            <input type="number" value=${qty} onInput=${e=>setQty(Math.max(1,Number(e.target.value)||1))} min="1" class="mono field" style="width:84px;padding:9px 10px;text-align:center;font-size:18px;font-weight:700;flex-shrink:0"/>
+            <input type="number" value=${qty} onInput=${handleQtyInput} min="1" class="mono field" style="width:84px;padding:9px 10px;text-align:center;font-size:18px;font-weight:700;flex-shrink:0"/>
             <span style="font-size:12px;color:var(--muted);flex-shrink:0">g / ml</span>
             <div style="margin-left:auto;text-align:right;flex-shrink:0">
               <div class="mono" style="font-size:22px;font-weight:700;line-height:1">${cal}</div>
               <div style="color:var(--muted);font-size:11px;margin-top:2px">kcal</div>
             </div>
           </div>
-          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
-            ${unitGrams
-              ? MULTIPLIERS.map(m => { const v = Math.round(unitGrams*m); return html`<button onClick=${()=>setQty(v)} class=${'pill '+(qty===v?'pill-active':'pill-inactive')}>×${m}</button>`; })
-              : QUICK_SIZES.map(s => html`<button onClick=${()=>setQty(s)} class=${'pill '+(qty===s?'pill-active':'pill-inactive')}>${s}g</button>`)}
+          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
+            ${QUICK_SIZES.map(s => html`<button onClick=${()=>{setQty(s);setBase(s);}} class=${'pill '+(qty===s?'pill-active':'pill-inactive')}>${s}g</button>`)}
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:10px">
+            <span style="font-size:10px;color:var(--muted);flex-shrink:0">× basis (${base}g):</span>
+            ${MULTIPLIERS.map(m => { const v = Math.round(base*m); return html`<button onClick=${()=>setQty(v)} class=${'pill '+(qty===v?'pill-active':'pill-inactive')}>×${m}</button>`; })}
           </div>
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px">
             ${[['E',(n['proteins_100g']||0)*f,'var(--p)'],['K',(n['carbohydrates_100g']||0)*f,'var(--c)'],['V',(n['fat_100g']||0)*f,'var(--f)']].map(([l,v,col]) => html`
