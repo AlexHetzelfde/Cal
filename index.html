@@ -591,8 +591,87 @@ function EmptyState({ icon, title, sub }) {
     </div>`;
 }
 
+// ── CustomProductItem (bibliotheek, eigen producten) ────────────────────────
+function CustomProductItem({ p, onLog, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
+  const [qty, setQty] = useState(p.eenheidsgewicht || 100);
+  const f = qty / 100;
+  const MULTIPLIERS = [1, 2, 3, 4, 5, 6, 7, 8];
+  const QUICK_SIZES = [25, 50, 100, 150, 200];
+  const handleLog = () => {
+    onLog({
+      naam: p.naam,
+      hoeveelheid: `${qty}g`,
+      calorieën: p.calorieën * f,
+      eiwitten: p.eiwitten * f,
+      koolhydraten: p.koolhydraten * f,
+      vetten: p.vetten * f,
+    });
+    setExpanded(false);
+  };
+  return html`
+    <div style="padding:9px 0">
+      <div style="display:flex;align-items:center;gap:10px;cursor:pointer" onClick=${() => setExpanded(v => !v)}>
+        <div style="width:36px;height:36px;border-radius:10px;background:#7fa4b81a;border:1px solid #7fa4b830;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px">📦</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.naam}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${Math.round(p.calorieën)} kcal · E ${Math.round(p.eiwitten)}g · K ${Math.round(p.koolhydraten)}g · V ${Math.round(p.vetten)}g${p.eenheidsgewicht ? ` · 1 stuk ${p.eenheidsgewicht}g` : ''}</div>
+        </div>
+        <div style="flex-shrink:0;color:#888888;font-size:14px;transition:transform .2s;transform:rotate(${expanded?'180':'0'}deg)">▾</div>
+        <button onClick=${e => { e.stopPropagation(); onDelete(p.id); }} style="flex-shrink:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
+          onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
+          onMouseOut=${e => e.currentTarget.style.color='var(--muted)'}>×</button>
+      </div>
+      ${expanded && html`
+        <div class="fade-up" style="padding-top:10px;margin-top:6px;border-top:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">
+            <input type="number" value=${qty} onInput=${e=>setQty(Math.max(1,Number(e.target.value)||1))} min="1" class="mono field" style="width:84px;padding:9px 10px;text-align:center;font-size:18px;font-weight:700;flex-shrink:0"/>
+            <span style="font-size:12px;color:var(--muted);flex-shrink:0">g</span>
+            <div style="margin-left:auto;text-align:right;flex-shrink:0">
+              <div class="mono" style="font-size:22px;font-weight:700;line-height:1">${Math.round(p.calorieën*f)}</div>
+              <div style="color:var(--muted);font-size:11px;margin-top:2px">kcal</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px">
+            ${p.eenheidsgewicht
+              ? MULTIPLIERS.map(m => { const v = Math.round(p.eenheidsgewicht*m); return html`<button onClick=${()=>setQty(v)} class=${'pill '+(qty===v?'pill-active':'pill-inactive')}>×${m}</button>`; })
+              : QUICK_SIZES.map(s => html`<button onClick=${()=>setQty(s)} class=${'pill '+(qty===s?'pill-active':'pill-inactive')}>${s}g</button>`)}
+          </div>
+          <button onClick=${handleLog} style="width:100%;background:var(--s1);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">+ Voeg toe</button>
+        </div>`}
+    </div>`;
+}
+
+// ── FavoriteWeightModal (gewicht van 1 stuk, bij favoriet toevoegen) ────────
+function FavoriteWeightModal({ fav, onSave, onClose }) {
+  const [gewicht, setGewicht] = useState(fav.eenheidsgewicht || '');
+  const inputRef = useRef(null);
+  const { handleClose, backdropClass, sheetClass, sheetStyle, touchHandlers } = useModalBehavior(onClose);
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 120); }, []);
+  const handleSave = () => {
+    const g = parseFloat(gewicht);
+    onSave(fav.id, (!isNaN(g) && g > 0) ? g : null);
+    handleClose();
+  };
+  return html`
+    <div class=${backdropClass} onClick=${e=>e.target===e.currentTarget&&handleClose()}>
+      <div class=${sheetClass} style=${{ maxHeight:'70vh', ...sheetStyle }} ...${touchHandlers}>
+        <div class="drag-handle"/>
+        <div style="padding:16px 16px 4px">
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Gewicht van 1 stuk</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:14px">${fav.product_name} — handig voor de ×2, ×3… snelknoppen bij het loggen. Overslaan mag, je kunt het later nog toevoegen.</div>
+          <input ref=${inputRef} type="number" value=${gewicht} onInput=${e=>setGewicht(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&handleSave()} class="field mono" placeholder="bijv. 55" style="margin-bottom:12px"/>
+          <div style="display:flex;gap:8px;padding-bottom:20px">
+            <button onClick=${handleClose} style="flex:1;background:none;border:1px solid var(--border);color:var(--muted);border-radius:10px;padding:11px;font-size:13px;cursor:pointer">Overslaan</button>
+            <button onClick=${handleSave} style="flex:1;background:var(--p);color:var(--bg);border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer">Opslaan</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
 // ── FavoriteItem (voor bibliotheek) ─────────────────────────────────────────
-function FavoriteItem({ fav, onToggleFavorite, onSelect }) {
+function FavoriteItem({ fav, onToggleFavorite, onSelect, onEditWeight }) {
   const [heartAnim, setHeartAnim] = useState('');
   const n = fav.nutriments;
   const kcal100 = Math.round(getKcal100g(n));
@@ -610,7 +689,13 @@ function FavoriteItem({ fav, onToggleFavorite, onSelect }) {
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fav.product_name}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${kcal100} kcal · E ${p100}g · K ${k100}g · V ${v100}g</div>
-        ${fav.brands && html`<span style="display:inline-block;font-size:10px;font-weight:600;color:var(--c);background:#7fa4b81a;border:1px solid #7fa4b840;border-radius:5px;padding:1px 7px;margin-top:3px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fav.brands}</span>`}
+        <div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap">
+          ${fav.brands && html`<span style="display:inline-block;font-size:10px;font-weight:600;color:var(--c);background:#7fa4b81a;border:1px solid #7fa4b840;border-radius:5px;padding:1px 7px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fav.brands}</span>`}
+          <button onClick=${(e) => { e.stopPropagation(); onEditWeight(fav); }}
+            style="background:none;border:none;color:var(--muted);font-size:10px;padding:0;cursor:pointer;text-decoration:underline;text-decoration-style:dotted">
+            ${fav.eenheidsgewicht ? `1 stuk · ${fav.eenheidsgewicht}g ✎` : '+ gewicht toevoegen'}
+          </button>
+        </div>
       </div>
       <button onClick=${() => onSelect(fav)}
         style="flex-shrink:0;background:#b872721a;color:var(--danger);border:1px solid #b8727230;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
@@ -748,20 +833,22 @@ function MealLogCard({ meal, onRemove }) {
 function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite = false, onToggleFavorite = null }) {
   const n = product.nutriments;
   const rawServing = product.serving_size || '';
-  const servingGrams = parseServingSize(rawServing);
-  const [qty, setQty] = useState(() => initialQty || servingGrams || 100);
+  // Handmatig ingevoerd stuksgewicht (custom product / favoriet) gaat vóór OFF-portiegrootte
+  const unitGrams = product.eenheidsgewicht || parseServingSize(rawServing);
+  const [qty, setQty] = useState(() => initialQty || unitGrams || 100);
   const [done, setDone] = useState(false);
   const [heartAnim, setHeartAnim] = useState('');
   const f = qty / 100;
   const cal100 = Math.round(getKcal100g(n));
   const cal = Math.round(getKcal100g(n) * f);
-  const MULTIPLIERS = [1, 2, 3, 5];
+  const MULTIPLIERS = [1, 2, 3, 4, 5, 6, 7, 8];
   const QUICK_SIZES = [25, 50, 100, 150, 200];
   const servingLabel = (() => {
-    if (!servingGrams) return null;
+    if (!unitGrams) return null;
+    if (product.eenheidsgewicht) return `1 stuk · ${unitGrams}g`;
     const cleaned = rawServing.trim();
     const isJustGrams = /^(\d+(?:[.,]\d+)?)\s*(?:g|ml)$/i.test(cleaned);
-    return isJustGrams ? `1 portie · ${servingGrams}g` : `1 portie · ${servingGrams}g (${cleaned})`;
+    return isJustGrams ? `1 portie · ${unitGrams}g` : `1 portie · ${unitGrams}g (${cleaned})`;
   })();
   const add = () => { onAdd(product, qty); setDone(true); setTimeout(() => setDone(false), 1800); };
   const handleHeart = (e) => {
@@ -803,7 +890,7 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
   />`}
         <div class="product-row-body">
           ${servingLabel && html`
-            <button onClick=${() => setQty(servingGrams)}
+            <button onClick=${() => setQty(unitGrams)}
               style="display:inline-flex;align-items:center;gap:5px;background:#85b0981a;border:1px solid #85b09840;border-radius:8px;color:var(--p);font-size:11px;padding:5px 10px;cursor:pointer;margin-bottom:12px;transition:background .15s"
               onMouseOver=${e=>e.currentTarget.style.background='#85b09830'}
               onMouseOut=${e=>e.currentTarget.style.background='#85b0981a'}>↗ ${servingLabel}</button>`}
@@ -816,8 +903,8 @@ function ProductRow({ product, initialQty, expanded, onToggle, onAdd, isFavorite
             </div>
           </div>
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
-            ${servingGrams
-              ? MULTIPLIERS.map(m => { const v = Math.round(servingGrams*m); return html`<button onClick=${()=>setQty(v)} class=${'pill '+(qty===v?'pill-active':'pill-inactive')}>×${m}</button>`; })
+            ${unitGrams
+              ? MULTIPLIERS.map(m => { const v = Math.round(unitGrams*m); return html`<button onClick=${()=>setQty(v)} class=${'pill '+(qty===v?'pill-active':'pill-inactive')}>×${m}</button>`; })
               : QUICK_SIZES.map(s => html`<button onClick=${()=>setQty(s)} class=${'pill '+(qty===s?'pill-active':'pill-inactive')}>${s}g</button>`)}
           </div>
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px">
@@ -1290,12 +1377,14 @@ function AddProductModal({ onClose, onSave }) {
   const [eiwit, setEiwit] = useState('');
   const [koolh, setKoolh] = useState('');
   const [vet, setVet] = useState('');
+  const [eenheidsgewicht, setEenheidsgewicht] = useState('');
   const inputRef = useRef(null);
   const { closing, handleClose, backdropClass, sheetClass, sheetStyle, touchHandlers } = useModalBehavior(onClose);
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 120); }, []);
   const handleSave = () => {
     if (!naam.trim() || isNaN(parseFloat(kcal)) || isNaN(parseFloat(eiwit)) || isNaN(parseFloat(koolh)) || isNaN(parseFloat(vet))) return;
-    onSave({ naam: naam.trim(), calorieën: parseFloat(kcal), eiwitten: parseFloat(eiwit), koolhydraten: parseFloat(koolh), vetten: parseFloat(vet) });
+    const gewicht = parseFloat(eenheidsgewicht);
+    onSave({ naam: naam.trim(), calorieën: parseFloat(kcal), eiwitten: parseFloat(eiwit), koolhydraten: parseFloat(koolh), vetten: parseFloat(vet), eenheidsgewicht: (!isNaN(gewicht) && gewicht > 0) ? gewicht : null });
     handleClose();
   };
   return html`
@@ -1312,6 +1401,11 @@ function AddProductModal({ onClose, onSave }) {
               <div style="font-size:11px;color:var(--muted);margin-bottom:5px">${label}</div>
               <input ref=${ref||null} type=${type} value=${val} onInput=${e=>setter(e.target.value)} class=${type==='number'?'field mono':'field'} placeholder=${ph}/>
             </div>`)}
+          <div style="margin-bottom:12px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Gewicht van 1 stuk/snee (g) — optioneel</div>
+            <input type="number" value=${eenheidsgewicht} onInput=${e=>setEenheidsgewicht(e.target.value)} class="field mono" placeholder="bijv. 45"/>
+            <div style="font-size:10px;color:var(--muted);margin-top:5px;line-height:1.5">Vul dit in als je bijv. 1 snee weegt — dan kun je later met ×2, ×3… loggen in plaats van steeds het gewicht uit te rekenen.</div>
+          </div>
           <button onClick=${handleSave} disabled=${!naam.trim()||!kcal||!eiwit||!koolh||!vet} class="btn" style="background:var(--p)">💾 Product opslaan</button>
         </div>
       </div>
@@ -1634,6 +1728,7 @@ function App() {
   const [toast, setToast] = useState('');
 
   const [favorites, setFavorites] = useState([]);
+  const [favWeightPrompt, setFavWeightPrompt] = useState(null);
   const [prs, setPRs] = useState({});
   const [showWorkoutBuilder, setShowWorkoutBuilder] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState(null);
@@ -2119,16 +2214,29 @@ Geen uitleg.`;
     setFavorites(prev => {
       const key = product.product_name?.toLowerCase();
       const exists = prev.some(f => f.product_name?.toLowerCase() === key);
-      const updated = exists
-        ? prev.filter(f => f.product_name?.toLowerCase() !== key)
-        : [...prev, {
-            id: Date.now() + Math.random(),
-            product_name: product.product_name,
-            brands: product.brands || '',
-            nutriments: product.nutriments,
-            serving_size: product.serving_size || null,
-            image_front_small_url: getProductImage(product) || null
-          }];
+      let updated;
+      if (exists) {
+        updated = prev.filter(f => f.product_name?.toLowerCase() !== key);
+      } else {
+        const newFav = {
+          id: Date.now() + Math.random(),
+          product_name: product.product_name,
+          brands: product.brands || '',
+          nutriments: product.nutriments,
+          serving_size: product.serving_size || null,
+          eenheidsgewicht: null,
+          image_front_small_url: getProductImage(product) || null
+        };
+        updated = [...prev, newFav];
+        setFavWeightPrompt(newFav);
+      }
+      saveFavorites(updated);
+      return updated;
+    });
+  };
+  const updateFavoriteWeight = (id, gewicht) => {
+    setFavorites(prev => {
+      const updated = prev.map(f => f.id === id ? { ...f, eenheidsgewicht: gewicht } : f);
       saveFavorites(updated);
       return updated;
     });
@@ -2148,6 +2256,7 @@ ${showQuickAdd && html`<${QuickAddModal}
     ${showMealBuilder && html`<${MealBuilderModal} onClose=${() => setShowMealBuilder(false)} onSave=${handleSaveMeal} onRequest=${() => setUsageTick(t => t+1)} favorites=${favorites} onToggleFavorite=${toggleFavorite}/>`}
     ${showAddProduct && html`<${AddProductModal} onClose=${() => setShowAddProduct(false)} onSave=${addCustomProduct}/>`}
     ${showAddExercise && html`<${AddCustomExerciseModal} onClose=${() => setShowAddExercise(false)} onSave=${handleSaveCustomExercise}/>`}
+    ${favWeightPrompt && html`<${FavoriteWeightModal} fav=${favWeightPrompt} onSave=${updateFavoriteWeight} onClose=${() => setFavWeightPrompt(null)}/>`}
     ${toast && html`<div style="position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:var(--p);color:var(--bg);padding:10px 22px;border-radius:20px;font-size:13px;font-weight:700;z-index:200;white-space:nowrap;box-shadow:0 4px 24px rgba(0,0,0,.4);animation:fadeUp .2s ease;pointer-events:none">${toast}</div>`}
     ${showModal && html`<${SearchModal}
       results=${offResults}
@@ -2313,19 +2422,8 @@ ${showQuickAdd && html`<${QuickAddModal}
           <div class="tab-content" style="display:${libTab==='producten'?'block':'none'}">
             ${customProducts.length === 0 && html`<${EmptyState} icon="📦" title="Nog geen eigen producten" sub='Voeg er een toe via "+ Nieuw".'/>`}
             ${customProducts.map((p, idx) => html`
-              <div style="display:flex;align-items:center;gap:10px;padding:9px 0;${idx < customProducts.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
-                <div style="width:36px;height:36px;border-radius:10px;background:#7fa4b81a;border:1px solid #7fa4b830;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px">📦</div>
-                <div style="flex:1;min-width:0">
-                  <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.naam}</div>
-                  <div style="font-size:10px;color:var(--muted);margin-top:2px;font-family:'JetBrains Mono',monospace">${Math.round(p.calorieën)} kcal · E ${Math.round(p.eiwitten)}g · K ${Math.round(p.koolhydraten)}g · V ${Math.round(p.vetten)}g</div>
-                </div>
-                <button onClick=${() => addItems([{ naam: p.naam, hoeveelheid: '100g', calorieën: p.calorieën, eiwitten: p.eiwitten, koolhydraten: p.koolhydraten, vetten: p.vetten }])}
-                  style="flex-shrink:0;background:#7fa4b81a;color:var(--c);border:1px solid #7fa4b840;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
-                  onMouseOver=${e => { e.currentTarget.style.background='var(--c)'; e.currentTarget.style.color='var(--bg)'; }}
-                  onMouseOut=${e => { e.currentTarget.style.background='#7fa4b81a'; e.currentTarget.style.color='var(--c)'; }}>+ Log</button>
-                <button onClick=${() => deleteCustomProduct(p.id)} style="flex-shrink:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:17px;line-height:1;padding:4px;transition:color .15s"
-                  onMouseOver=${e => e.currentTarget.style.color='var(--danger)'}
-                  onMouseOut=${e => e.currentTarget.style.color='var(--muted)'}>×</button>
+              <div style=${idx < customProducts.length-1 ? 'border-bottom:1px solid var(--border)' : ''}>
+                <${CustomProductItem} p=${p} onLog=${(item) => addItems([item])} onDelete=${deleteCustomProduct}/>
               </div>`)}
           </div>
 
@@ -2336,6 +2434,7 @@ ${showQuickAdd && html`<${QuickAddModal}
                 <${FavoriteItem}
                   fav=${fav}
                   onToggleFavorite=${toggleFavorite}
+                  onEditWeight=${(fav) => setFavWeightPrompt(fav)}
                   onSelect=${(fav) => {
                     setOffResults([{ product: fav, qty: null }]);
                     setModalLabel(fav.product_name);
